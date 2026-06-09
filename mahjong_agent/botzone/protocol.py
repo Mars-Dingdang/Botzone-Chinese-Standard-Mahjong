@@ -38,6 +38,7 @@ class ProtocolState(object):
         self.discards = [[] for _ in range(4)]
         self.events = []
         self.current_player = 0
+        self.prevalent_wind = 0
         self.phase = "claim"
         self.last_discard = None
 
@@ -48,6 +49,8 @@ class ProtocolState(object):
         code = parts[0]
         if code == "0":
             self.player_id = int(parts[1])
+            if len(parts) > 2:
+                self.prevalent_wind = int(parts[2])
         elif code == "1":
             self.hand = sorted(name_to_tile(tile) for tile in parts[-13:])
             self.current_player = self.player_id
@@ -127,6 +130,8 @@ class ProtocolState(object):
             "melds": self.melds,
             "discards": self.discards,
             "wall_remaining": max(0, 83 - len(self.events)),
+            "wall_remaining_by_player": [max(0, 21 - len(self.events) // 4)] * 4,
+            "prevalent_wind": self.prevalent_wind,
             "events": list(self.events[-128:]),
             "last_discard": self.last_discard,
         }

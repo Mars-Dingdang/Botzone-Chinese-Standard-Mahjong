@@ -2,3 +2,14 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+artifacts/official_bc/
+artifacts/runs/
+artifacts/training-launch.log
+artifacts/training.pid
+artifacts/latest_run.txt
+artifacts/official_bc_tensors/
+artifacts/official_bc_full_v2/
+artifacts/official_bc_full_v2_tensors/
+Chinese-Standard-Mahjong/
+artifacts/ppo_model.pt
+artifacts/ppo_model.pt.json

@@ -52,7 +52,7 @@ class HybridTransformer(nn.Module):
             torch.cat([expanded_state, action_embeddings], dim=-1)
         ).squeeze(-1)
         if action_mask is not None:
-            logits = logits.masked_fill(action_mask == 0, -1e9)
+            logits = logits.masked_fill(action_mask == 0, -1e4)
         return {
             "logits": logits,
             "value": self.value_head(state).squeeze(-1),

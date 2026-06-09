@@ -1,0 +1,142 @@
+nohup: ignoring input
+run_dir=artifacts/runs/20260609-173116
+using existing preprocessed data: artifacts/official_bc_full_v2
+clearing incomplete tensor cache: artifacts/official_bc_full_v2_tensors
+converted=20/197 tensor_shards=40
+converted=40/197 tensor_shards=80
+converted=60/197 tensor_shards=120
+converted=80/197 tensor_shards=160
+converted=100/197 tensor_shards=200
+converted=120/197 tensor_shards=240
+converted=140/197 tensor_shards=280
+converted=160/197 tensor_shards=320
+converted=180/197 tensor_shards=360
+train=5169030 val=273947
+W0609 18:29:44.873000 284543 torch/distributed/run.py:792] 
+W0609 18:29:44.873000 284543 torch/distributed/run.py:792] *****************************************
+W0609 18:29:44.873000 284543 torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0609 18:29:44.873000 284543 torch/distributed/run.py:792] *****************************************
+/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(
+/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(
+balanced_rank_steps=[632, 629] train_steps=629
+epoch=1 train={'loss': 1.7823825271027267, 'accuracy': 0.39986314151927665, 'samples': 2576384, 'steps': 629} val={'loss': 1.6199645273613208, 'accuracy': 0.45796342329545453, 'samples': 270336, 'steps': 66}
+balanced_rank_steps=[632, 629] train_steps=629
+epoch=2 train={'loss': 1.547334734699874, 'accuracy': 0.4840132526828299, 'samples': 2576384, 'steps': 629} val={'loss': 1.471154805385705, 'accuracy': 0.5143747040719697, 'samples': 270336, 'steps': 66}
+balanced_rank_steps=[632, 629] train_steps=629
+epoch=3 train={'loss': 1.3955398796093672, 'accuracy': 0.541854785622019, 'samples': 2576384, 'steps': 629} val={'loss': 1.3212076606172505, 'accuracy': 0.5720399798768939, 'samples': 270336, 'steps': 66}
+balanced_rank_steps=[632, 629] train_steps=629
+epoch=4 train={'loss': 1.2636482230430566, 'accuracy': 0.5882186040590223, 'samples': 2576384, 'steps': 629} val={'loss': 1.2066844647580928, 'accuracy': 0.6074033794981061, 'samples': 270336, 'steps': 66}
+balanced_rank_steps=[632, 629] train_steps=629
+epoch=5 train={'loss': 1.1661005926056394, 'accuracy': 0.6179754260234499, 'samples': 2576384, 'steps': 629} val={'loss': 1.1322606133692192, 'accuracy': 0.628225615530303, 'samples': 270336, 'steps': 66}
+/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(
+{
+  "average_score_a": 0.15,
+  "average_score_b": -0.049999999999999864,
+  "games": 40
+}
+W0609 18:34:11.738000 286664 torch/distributed/run.py:792] 
+W0609 18:34:11.738000 286664 torch/distributed/run.py:792] *****************************************
+W0609 18:34:11.738000 286664 torch/distributed/run.py:792] Setting OMP_NUM_THREADS environment variable for each process to be 1 in default, to avoid your system being overloaded, please further tune the variable for optimal performance in your application as needed. 
+W0609 18:34:11.738000 286664 torch/distributed/run.py:792] *****************************************
+/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(
+/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/nn/modules/transformer.py:385: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(
+update=1 metrics={'loss': -0.03520888835191727, 'policy_loss': -0.034079410135746, 'value_loss': 0.004600788466632366, 'entropy': 0.3429870307445526, 'approx_kl': -0.04854211583733559, 'clip_fraction': 0.13249211013317108, 'explained_variance': -0.06530952453613281, 'epochs': 4}
+update=2 metrics={'loss': -0.0290694423019886, 'policy_loss': -0.028733255341649055, 'value_loss': 0.005474798381328583, 'entropy': 0.30735862255096436, 'approx_kl': 0.02245180681347847, 'clip_fraction': 0.11142857372760773, 'explained_variance': -0.684739351272583, 'epochs': 4}
+update=3 metrics={'loss': -0.02817004732787609, 'policy_loss': -0.028874622657895088, 'value_loss': 0.007363677024841309, 'entropy': 0.2977263331413269, 'approx_kl': 0.029482727870345116, 'clip_fraction': 0.11009174585342407, 'explained_variance': -0.3303055763244629, 'epochs': 4}
+update=4 metrics={'loss': -0.023882318288087845, 'policy_loss': -0.025695106014609337, 'value_loss': 0.009508996270596981, 'entropy': 0.29417118430137634, 'approx_kl': 0.02288021892309189, 'clip_fraction': 0.09508197009563446, 'explained_variance': -0.3315325975418091, 'epochs': 4}
+update=5 metrics={'loss': -0.02767935022711754, 'policy_loss': -0.02725937031209469, 'value_loss': 0.005921268370002508, 'entropy': 0.33806127309799194, 'approx_kl': 0.014888233505189419, 'clip_fraction': 0.09208633005619049, 'explained_variance': 0.12586426734924316, 'epochs': 4}
+update=6 metrics={'loss': -0.016147151589393616, 'policy_loss': -0.015998512506484985, 'value_loss': 0.005733921658247709, 'entropy': 0.30156010389328003, 'approx_kl': -0.013402707874774933, 'clip_fraction': 0.08742330968379974, 'explained_variance': 0.3132949471473694, 'epochs': 4}
+update=7 metrics={'loss': -0.021322214975953102, 'policy_loss': -0.020873017609119415, 'value_loss': 0.005470230244100094, 'entropy': 0.3184313476085663, 'approx_kl': 0.0002686295483727008, 'clip_fraction': 0.07866868376731873, 'explained_variance': 0.17936354875564575, 'epochs': 4}
+update=8 metrics={'loss': -0.009196395054459572, 'policy_loss': -0.015131422318518162, 'value_loss': 0.019017517566680908, 'entropy': 0.35737311840057373, 'approx_kl': 0.015342652797698975, 'clip_fraction': 0.08013937622308731, 'explained_variance': 0.11440932750701904, 'epochs': 4}
+update=9 metrics={'loss': -0.01785971224308014, 'policy_loss': -0.017069945111870766, 'value_loss': 0.004878063220530748, 'entropy': 0.32287994027137756, 'approx_kl': 0.0005250194226391613, 'clip_fraction': 0.07555555552244186, 'explained_variance': 0.15812700986862183, 'epochs': 4}
+update=10 metrics={'loss': -0.014591993764042854, 'policy_loss': -0.014260892756283283, 'value_loss': 0.005208469927310944, 'entropy': 0.2935336232185364, 'approx_kl': 0.009168666787445545, 'clip_fraction': 0.07173601537942886, 'explained_variance': -0.09777176380157471, 'epochs': 4}
+update=11 metrics={'loss': -0.03286769241094589, 'policy_loss': -0.031017620116472244, 'value_loss': 0.0025893901474773884, 'entropy': 0.31447678804397583, 'approx_kl': 0.01894051767885685, 'clip_fraction': 0.08939393609762192, 'explained_variance': -0.45264363288879395, 'epochs': 4}
+update=12 metrics={'loss': -0.009988387115299702, 'policy_loss': -0.011125831864774227, 'value_loss': 0.0074818613938987255, 'entropy': 0.2603486180305481, 'approx_kl': 0.0027311567682772875, 'clip_fraction': 0.06332842260599136, 'explained_variance': 0.08543181419372559, 'epochs': 4}
+update=13 metrics={'loss': -0.021846646443009377, 'policy_loss': -0.02133108861744404, 'value_loss': 0.005539643578231335, 'entropy': 0.32853806018829346, 'approx_kl': 0.020316079258918762, 'clip_fraction': 0.0953800305724144, 'explained_variance': -0.09795761108398438, 'epochs': 4}
+update=14 metrics={'loss': -0.010602328926324844, 'policy_loss': -0.01223185658454895, 'value_loss': 0.00845144409686327, 'entropy': 0.25961944460868835, 'approx_kl': 0.0027832561172544956, 'clip_fraction': 0.050156738609075546, 'explained_variance': 0.05569052696228027, 'epochs': 4}
+update=15 metrics={'loss': -0.011474136263132095, 'policy_loss': -0.013676919974386692, 'value_loss': 0.009647153317928314, 'entropy': 0.26207929849624634, 'approx_kl': 0.007504848297685385, 'clip_fraction': 0.05750798434019089, 'explained_variance': 0.107174813747406, 'epochs': 4}
+update=16 metrics={'loss': -0.01189553365111351, 'policy_loss': -0.013667916879057884, 'value_loss': 0.008745456114411354, 'entropy': 0.260034441947937, 'approx_kl': 0.0017226070631295443, 'clip_fraction': 0.050156738609075546, 'explained_variance': 0.07047796249389648, 'epochs': 4}
+update=17 metrics={'loss': -0.0008156520780175924, 'policy_loss': -0.00902231503278017, 'value_loss': 0.021461425349116325, 'entropy': 0.25240498781204224, 'approx_kl': 0.020749369636178017, 'clip_fraction': 0.05708661302924156, 'explained_variance': -0.06541657447814941, 'epochs': 3}
+update=18 metrics={'loss': -0.01644149422645569, 'policy_loss': -0.015893107280135155, 'value_loss': 0.004172837361693382, 'entropy': 0.2634805738925934, 'approx_kl': -1.330990380665753e-05, 'clip_fraction': 0.0546875, 'explained_variance': 0.0302392840385437, 'epochs': 4}
+update=19 metrics={'loss': -0.010503065772354603, 'policy_loss': -0.016090460121631622, 'value_loss': 0.01682277023792267, 'entropy': 0.28239908814430237, 'approx_kl': 0.014560861513018608, 'clip_fraction': 0.06041335687041283, 'explained_variance': -0.19049286842346191, 'epochs': 4}
+update=20 metrics={'loss': -0.013731102459132671, 'policy_loss': -0.014612630940973759, 'value_loss': 0.007155173923820257, 'entropy': 0.2696058452129364, 'approx_kl': -0.013889288529753685, 'clip_fraction': 0.08421052992343903, 'explained_variance': -0.2005763053894043, 'epochs': 4}
+update=21 metrics={'loss': -0.016582420095801353, 'policy_loss': -0.01671464927494526, 'value_loss': 0.005951596889644861, 'entropy': 0.28435689210891724, 'approx_kl': 0.026235954836010933, 'clip_fraction': 0.07478006184101105, 'explained_variance': 0.027572572231292725, 'epochs': 4}
+update=22 metrics={'loss': -0.02062026783823967, 'policy_loss': -0.01882290281355381, 'value_loss': 0.001997173996642232, 'entropy': 0.27959516644477844, 'approx_kl': 0.022167930379509926, 'clip_fraction': 0.07585138827562332, 'explained_variance': -0.12078225612640381, 'epochs': 3}
+update=23 metrics={'loss': -0.012002828530967236, 'policy_loss': -0.013145681470632553, 'value_loss': 0.008114063180983067, 'entropy': 0.29141780734062195, 'approx_kl': -0.009919190779328346, 'clip_fraction': 0.07293354719877243, 'explained_variance': 0.11993801593780518, 'epochs': 4}
+update=24 metrics={'loss': -0.012658750638365746, 'policy_loss': -0.011799200437963009, 'value_loss': 0.004474034067243338, 'entropy': 0.30965670943260193, 'approx_kl': 0.005976423155516386, 'clip_fraction': 0.06907378137111664, 'explained_variance': 0.3176731467247009, 'epochs': 4}
+update=25 metrics={'loss': -0.004432050511240959, 'policy_loss': -0.006647379603236914, 'value_loss': 0.009617025032639503, 'entropy': 0.25931838154792786, 'approx_kl': 0.008032283745706081, 'clip_fraction': 0.0736377015709877, 'explained_variance': 0.09349685907363892, 'epochs': 4}
+update=26 metrics={'loss': -0.026317758485674858, 'policy_loss': -0.024359583854675293, 'value_loss': 0.0018286843551322818, 'entropy': 0.2872517704963684, 'approx_kl': 0.026218362152576447, 'clip_fraction': 0.07234042137861252, 'explained_variance': 0.17789870500564575, 'epochs': 3}
+update=27 metrics={'loss': -0.009345351718366146, 'policy_loss': -0.015293432399630547, 'value_loss': 0.017060071229934692, 'entropy': 0.25819551944732666, 'approx_kl': 0.02653854712843895, 'clip_fraction': 0.0862329751253128, 'explained_variance': 0.06783324480056763, 'epochs': 4}
+update=28 metrics={'loss': -0.025883706286549568, 'policy_loss': -0.02455979213118553, 'value_loss': 0.0022034919820725918, 'entropy': 0.24256591498851776, 'approx_kl': -0.006253039930015802, 'clip_fraction': 0.08714285492897034, 'explained_variance': -0.11068391799926758, 'epochs': 4}
+update=29 metrics={'loss': -0.006981901824474335, 'policy_loss': -0.01166683342307806, 'value_loss': 0.014495342038571835, 'entropy': 0.25627395510673523, 'approx_kl': 0.021761689335107803, 'clip_fraction': 0.07096774131059647, 'explained_variance': 0.09127849340438843, 'epochs': 4}
+update=30 metrics={'loss': -0.0222414992749691, 'policy_loss': -0.020967090502381325, 'value_loss': 0.002081983257085085, 'entropy': 0.23154009878635406, 'approx_kl': 0.005302824079990387, 'clip_fraction': 0.06637167930603027, 'explained_variance': 0.14172738790512085, 'epochs': 4}
+update=31 metrics={'loss': -0.01967484876513481, 'policy_loss': -0.018866360187530518, 'value_loss': 0.0027064539026468992, 'entropy': 0.2161714881658554, 'approx_kl': -0.007886560633778572, 'clip_fraction': 0.06376811861991882, 'explained_variance': 0.27402037382125854, 'epochs': 4}
+update=32 metrics={'loss': -0.013350056484341621, 'policy_loss': -0.015394436195492744, 'value_loss': 0.008544051088392735, 'entropy': 0.22276455163955688, 'approx_kl': 0.021280013024806976, 'clip_fraction': 0.06614173203706741, 'explained_variance': -0.0767207145690918, 'epochs': 4}
+update=33 metrics={'loss': -0.0010892332065850496, 'policy_loss': -0.0055470592342317104, 'value_loss': 0.013845290057361126, 'entropy': 0.24648191034793854, 'approx_kl': -0.00666939839720726, 'clip_fraction': 0.060457516461610794, 'explained_variance': 0.11117309331893921, 'epochs': 4}
+update=34 metrics={'loss': -0.0187996793538332, 'policy_loss': -0.01732754334807396, 'value_loss': 0.0018721942324191332, 'entropy': 0.2408231943845749, 'approx_kl': 0.009892457164824009, 'clip_fraction': 0.05603448301553726, 'explained_variance': 0.3337373733520508, 'epochs': 4}
+update=35 metrics={'loss': 0.0005674960557371378, 'policy_loss': -0.01045891921967268, 'value_loss': 0.02653673104941845, 'entropy': 0.22419501841068268, 'approx_kl': 0.013466074131429195, 'clip_fraction': 0.05642633140087128, 'explained_variance': 0.01857048273086548, 'epochs': 4}
+update=36 metrics={'loss': -0.007286492269486189, 'policy_loss': -0.009417918510735035, 'value_loss': 0.009255989454686642, 'entropy': 0.24965685606002808, 'approx_kl': 0.028107231482863426, 'clip_fraction': 0.08260869979858398, 'explained_variance': -0.2687835693359375, 'epochs': 4}
+update=37 metrics={'loss': -0.02276879921555519, 'policy_loss': -0.02179376780986786, 'value_loss': 0.0032051720190793276, 'entropy': 0.2577618658542633, 'approx_kl': 0.021639879792928696, 'clip_fraction': 0.09220986068248749, 'explained_variance': -0.020282626152038574, 'epochs': 4}
+update=38 metrics={'loss': -0.0019546588882803917, 'policy_loss': -0.009262843988835812, 'value_loss': 0.019022557884454727, 'entropy': 0.22030939161777496, 'approx_kl': 0.015290378592908382, 'clip_fraction': 0.05351682007312775, 'explained_variance': 0.07592934370040894, 'epochs': 4}
+update=39 metrics={'loss': -0.00920596718788147, 'policy_loss': -0.010185274295508862, 'value_loss': 0.006922018248587847, 'entropy': 0.24817024171352386, 'approx_kl': -0.0023271788377314806, 'clip_fraction': 0.05912162363529205, 'explained_variance': 0.17037749290466309, 'epochs': 4}
+update=40 metrics={'loss': -0.010593683458864689, 'policy_loss': -0.012883147224783897, 'value_loss': 0.009501480497419834, 'entropy': 0.24612759053707123, 'approx_kl': 0.008523361757397652, 'clip_fraction': 0.06697819381952286, 'explained_variance': 0.19137483835220337, 'epochs': 4}
+update=41 metrics={'loss': -0.007235235534608364, 'policy_loss': -0.009903062134981155, 'value_loss': 0.01027715764939785, 'entropy': 0.24707521498203278, 'approx_kl': -0.004505939316004515, 'clip_fraction': 0.05061349645256996, 'explained_variance': -0.02877664566040039, 'epochs': 4}
+update=42 metrics={'loss': -0.01014696341007948, 'policy_loss': -0.015549671836197376, 'value_loss': 0.016655247658491135, 'entropy': 0.2924915552139282, 'approx_kl': 0.013631200417876244, 'clip_fraction': 0.06618962436914444, 'explained_variance': 0.07429313659667969, 'epochs': 4}
+update=43 metrics={'loss': 0.0007690624333918095, 'policy_loss': -0.010329842567443848, 'value_loss': 0.027135198935866356, 'entropy': 0.24686944484710693, 'approx_kl': 0.010529598221182823, 'clip_fraction': 0.048494983464479446, 'explained_variance': -0.05941653251647949, 'epochs': 4}
+update=44 metrics={'loss': -0.008801294490695, 'policy_loss': -0.010568487457931042, 'value_loss': 0.008496963419020176, 'entropy': 0.24812886118888855, 'approx_kl': -0.0006172534194774926, 'clip_fraction': 0.05270863696932793, 'explained_variance': 0.07618814706802368, 'epochs': 4}
+update=45 metrics={'loss': -0.016529135406017303, 'policy_loss': -0.016148962080478668, 'value_loss': 0.004209458362311125, 'entropy': 0.2484903633594513, 'approx_kl': -0.004021290689706802, 'clip_fraction': 0.07359307259321213, 'explained_variance': 0.04882919788360596, 'epochs': 4}
+update=46 metrics={'loss': -0.016811728477478027, 'policy_loss': -0.01750650815665722, 'value_loss': 0.006990954279899597, 'entropy': 0.2800697684288025, 'approx_kl': 0.004727462772279978, 'clip_fraction': 0.10217755287885666, 'explained_variance': -0.23249876499176025, 'epochs': 4}
+update=47 metrics={'loss': -0.009254521690309048, 'policy_loss': -0.009183838032186031, 'value_loss': 0.0055457670241594315, 'entropy': 0.2843567132949829, 'approx_kl': 0.031212108209729195, 'clip_fraction': 0.0624999962747097, 'explained_variance': -0.07813584804534912, 'epochs': 3}
+update=48 metrics={'loss': -0.009853802621364594, 'policy_loss': -0.009642625227570534, 'value_loss': 0.005173016339540482, 'entropy': 0.27976861596107483, 'approx_kl': 0.01351038459688425, 'clip_fraction': 0.08069164305925369, 'explained_variance': -0.021708369255065918, 'epochs': 4}
+update=49 metrics={'loss': -0.01074074674397707, 'policy_loss': -0.010725573636591434, 'value_loss': 0.00566707830876112, 'entropy': 0.2848711907863617, 'approx_kl': 0.00045174165279604495, 'clip_fraction': 0.08294209837913513, 'explained_variance': 0.1435173749923706, 'epochs': 4}
+update=50 metrics={'loss': -0.0058952821418643, 'policy_loss': -0.008565854281187057, 'value_loss': 0.011242024600505829, 'entropy': 0.29504403471946716, 'approx_kl': 0.02130817621946335, 'clip_fraction': 0.06666667014360428, 'explained_variance': 0.0622556209564209, 'epochs': 3}
+update=51 metrics={'loss': -0.01104967575520277, 'policy_loss': -0.01058491412550211, 'value_loss': 0.004861049819737673, 'entropy': 0.28952863812446594, 'approx_kl': -0.0006701576057821512, 'clip_fraction': 0.06185567006468773, 'explained_variance': 0.14684689044952393, 'epochs': 4}
+update=52 metrics={'loss': -0.015545578673481941, 'policy_loss': -0.015152362175285816, 'value_loss': 0.004747504834085703, 'entropy': 0.27669692039489746, 'approx_kl': 0.012592431157827377, 'clip_fraction': 0.05648855119943619, 'explained_variance': 0.26657330989837646, 'epochs': 4}
+update=53 metrics={'loss': -0.010219007730484009, 'policy_loss': -0.010423770174384117, 'value_loss': 0.005678873974829912, 'entropy': 0.2634674608707428, 'approx_kl': 0.02007434144616127, 'clip_fraction': 0.08766715973615646, 'explained_variance': 0.2075396180152893, 'epochs': 4}
+update=54 metrics={'loss': -0.009189502336084843, 'policy_loss': -0.011955437250435352, 'value_loss': 0.011117159388959408, 'entropy': 0.2792644500732422, 'approx_kl': 0.002753760665655136, 'clip_fraction': 0.06678082048892975, 'explained_variance': 0.0555034875869751, 'epochs': 4}
+update=55 metrics={'loss': -0.010098466649651527, 'policy_loss': -0.010224265046417713, 'value_loss': 0.00523902103304863, 'entropy': 0.2493712157011032, 'approx_kl': 0.012130999937653542, 'clip_fraction': 0.06544901430606842, 'explained_variance': 0.11179220676422119, 'epochs': 4}
+update=56 metrics={'loss': -0.013832216151058674, 'policy_loss': -0.012449502013623714, 'value_loss': 0.002267885021865368, 'entropy': 0.2516656517982483, 'approx_kl': 0.014423283748328686, 'clip_fraction': 0.07153075933456421, 'explained_variance': 0.2931775450706482, 'epochs': 4}
+update=57 metrics={'loss': -0.022859329357743263, 'policy_loss': -0.020504238083958626, 'value_loss': 0.0011023065308108926, 'entropy': 0.29062438011169434, 'approx_kl': 0.0026723751798272133, 'clip_fraction': 0.08297567814588547, 'explained_variance': 0.2574005722999573, 'epochs': 4}
+update=58 metrics={'loss': -0.009155704639852047, 'policy_loss': -0.009554543532431126, 'value_loss': 0.006020309869199991, 'entropy': 0.26113161444664, 'approx_kl': -0.0035641384311020374, 'clip_fraction': 0.042488619685173035, 'explained_variance': 0.014057695865631104, 'epochs': 4}
+update=59 metrics={'loss': -0.008455853909254074, 'policy_loss': -0.011729936115443707, 'value_loss': 0.011750658042728901, 'entropy': 0.26012465357780457, 'approx_kl': 0.01698649302124977, 'clip_fraction': 0.059308070689439774, 'explained_variance': 0.05568099021911621, 'epochs': 4}
+update=60 metrics={'loss': -0.01203280221670866, 'policy_loss': -0.011899497359991074, 'value_loss': 0.005268034525215626, 'entropy': 0.2767321765422821, 'approx_kl': 0.0027992187533527613, 'clip_fraction': 0.07668711245059967, 'explained_variance': 0.03435701131820679, 'epochs': 4}
+update=61 metrics={'loss': -0.010565478354692459, 'policy_loss': -0.011058708652853966, 'value_loss': 0.00625640619546175, 'entropy': 0.2634972631931305, 'approx_kl': 0.007750993128865957, 'clip_fraction': 0.038051750510931015, 'explained_variance': 0.40860605239868164, 'epochs': 4}
+update=62 metrics={'loss': -0.009488942101597786, 'policy_loss': -0.010648125782608986, 'value_loss': 0.007860053330659866, 'entropy': 0.2770842909812927, 'approx_kl': 0.02681596763432026, 'clip_fraction': 0.05288461595773697, 'explained_variance': 0.132266104221344, 'epochs': 3}
+update=63 metrics={'loss': -0.007944184355437756, 'policy_loss': -0.00788728054612875, 'value_loss': 0.005860916338860989, 'entropy': 0.29873618483543396, 'approx_kl': 0.0016956645995378494, 'clip_fraction': 0.06890756636857986, 'explained_variance': -0.1351536512374878, 'epochs': 4}
+update=64 metrics={'loss': -0.006671625655144453, 'policy_loss': -0.0095814298838377, 'value_loss': 0.010814614593982697, 'entropy': 0.2497503012418747, 'approx_kl': 0.015937617048621178, 'clip_fraction': 0.06231003254652023, 'explained_variance': 0.18165993690490723, 'epochs': 4}
+W0609 19:06:55.452000 286664 torch/distributed/elastic/agent/server/api.py:719] Received 1 death signal, shutting down workers
+W0609 19:06:55.457000 286664 torch/distributed/elastic/multiprocessing/api.py:897] Sending process 286750 closing signal SIGHUP
+W0609 19:06:55.459000 286664 torch/distributed/elastic/multiprocessing/api.py:897] Sending process 286751 closing signal SIGHUP
+Traceback (most recent call last):
+  File "/root/LLM_HW2/.venv/bin/torchrun", line 8, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/errors/__init__.py", line 355, in wrapper
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/run.py", line 918, in main
+    run(args)
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/launcher/api.py", line 260, in launch_agent
+    result = agent.run()
+             ^^^^^^^^^^^
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/elastic/metrics/api.py", line 137, in wrapper
+    result = f(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py", line 711, in run
+    result = self._invoke_run(role)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/elastic/agent/server/api.py", line 870, in _invoke_run
+    time.sleep(monitor_interval)
+  File "/root/LLM_HW2/.venv/lib/python3.12/site-packages/torch/distributed/elastic/multiprocessing/api.py", line 84, in _terminate_process_handler
+    raise SignalException(f"Process {os.getpid()} got signal: {sigval}", sigval=sigval)
+torch.distributed.elastic.multiprocessing.api.SignalException: Process 286664 got signal: 1

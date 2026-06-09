@@ -47,6 +47,25 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(pengs)
         self.assertTrue(all(action.discard != 0 for action in pengs))
 
+    def test_claims_are_collected_before_priority_resolution(self):
+        env = MahjongEnv()
+        env.reset(seed=1)
+        env.hands[1] = [0, 0] + list(range(1, 12))
+        env.hands[2] = [0, 0] + list(range(1, 12))
+        env.current_player = 0
+        env.phase = "discard"
+        env.hands[0] = [0] + list(range(1, 14))
+        env.step(Action.play(0))
+        peng = next(action for action in env.legal_actions() if action.kind == ActionType.PENG)
+        env.step(peng)
+        self.assertEqual(env.current_player, 2)
+        self.assertEqual(env.phase, "claim")
+        env.step(Action.pass_())
+        env.step(Action.pass_())
+        self.assertEqual(env.current_player, 2)
+        self.assertEqual(env.phase, "claim")
+        self.assertEqual(env.melds[1][0].kind, ActionType.PENG)
+
 
 if __name__ == "__main__":
     unittest.main()
