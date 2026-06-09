@@ -18,7 +18,7 @@ from mahjong_agent.policies import HeuristicPolicy, RandomPolicy
 from mahjong_agent.policies.model import ModelPolicy
 from mahjong_agent.training.checkpoint import load_checkpoint, save_checkpoint
 from mahjong_agent.training.dataset import collate_records
-from mahjong_agent.training.ppo import ppo_update
+from mahjong_agent.training.ppo import ppo_update, potential_shaped_rewards
 from mahjong_agent.training.ppo import generalized_advantage_estimate
 from mahjong_agent.training.rollout import play_episode
 from mahjong_agent.rules import default_backend
@@ -50,6 +50,8 @@ def main():
     parser.add_argument("--gae-lambda", type=float, default=0.95)
     parser.add_argument("--target-kl", type=float, default=0.02)
     parser.add_argument("--potential-coef", type=float, default=0.02)
+    parser.add_argument("--bc-kl-coef", type=float, default=0.01)
+    parser.add_argument("--minibatch-size", type=int, default=1024)
     args = parser.parse_args()
     distributed = int(os.environ.get("WORLD_SIZE", "1")) > 1
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -60,6 +62,11 @@ def main():
     model = HybridTransformer()
     load_checkpoint(args.checkpoint, model)
     model.to(device)
+    reference_model = HybridTransformer()
+    load_checkpoint(args.checkpoint, reference_model)
+    reference_model.to(device).eval()
+    for parameter in reference_model.parameters():
+        parameter.requires_grad = False
     if distributed:
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[local_rank], broadcast_buffers=False,
@@ -99,18 +106,20 @@ def main():
             game_features, game_actions, game_masks, game_chosen = collate_records(game_records, torch)
             with torch.no_grad():
                 values = model(game_features.to(device), game_actions.to(device), game_masks.to(device))["value"].cpu().tolist()
-            shaped_rewards = [0.0] * len(game_records)
-            shaped_rewards[-1] = terminal_reward
-            if args.potential_coef:
-                potentials = [potential(record["observation"]) for record in learner_records]
-                for index in range(len(potentials) - 1):
-                    shaped_rewards[index] += args.potential_coef * (args.gamma * potentials[index + 1] - potentials[index])
+            potentials = [potential(record["observation"]) for record in learner_records]
+            shaped_rewards = potential_shaped_rewards(
+                potentials, terminal_reward, args.gamma, args.potential_coef)
             game_advantages, game_returns = generalized_advantage_estimate(
                 shaped_rewards, values, args.gamma, args.gae_lambda)
             records.extend(game_records)
             advantages_all.extend(game_advantages)
             returns_all.extend(game_returns)
-        if not records:
+        has_records = bool(records)
+        if distributed:
+            ready = torch.tensor([int(has_records)], device=device)
+            torch.distributed.all_reduce(ready, op=torch.distributed.ReduceOp.MIN)
+            has_records = bool(ready.item())
+        if not has_records:
             continue
         features, actions, masks, chosen = collate_records(records, torch)
         features = features.to(device)
@@ -118,21 +127,26 @@ def main():
         masks = masks.to(device)
         chosen = chosen.to(device)
         with torch.no_grad():
+            model.eval()
             old = model(features, actions, masks)
             old_log_probs = torch.distributions.Categorical(
                 logits=old["logits"]
             ).log_prob(chosen)
+            reference_logits = reference_model(features, actions, masks)["logits"]
         returns = torch.tensor(returns_all, dtype=torch.float32, device=device)
         advantages = torch.tensor(advantages_all, dtype=torch.float32, device=device)
         advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
         batch = dict(features=features, actions=actions, masks=masks, chosen=chosen,
-                     old_log_probs=old_log_probs, advantages=advantages, returns=returns)
-        metrics = ppo_update(model, optimizer, batch, target_kl=args.target_kl)
+                     old_log_probs=old_log_probs, advantages=advantages, returns=returns,
+                     reference_logits=reference_logits)
+        metrics = ppo_update(model, optimizer, batch, target_kl=args.target_kl,
+                             bc_kl_coef=args.bc_kl_coef, minibatch_size=args.minibatch_size)
         if not distributed or torch.distributed.get_rank() == 0:
             print("update=%d metrics=%r" % (update + 1, metrics), flush=True)
             if (update + 1) % args.save_every == 0:
                 saved_model = model.module if distributed else model
-                save_checkpoint(args.output, saved_model, optimizer, {"algorithm": "ppo", "updates": update + 1})
+                checkpoint = args.output.replace(".pt", ".update-%04d.pt" % (update + 1))
+                save_checkpoint(checkpoint, saved_model, optimizer, {"algorithm": "ppo", "updates": update + 1, "metrics": metrics})
     if not distributed or torch.distributed.get_rank() == 0:
         saved_model = model.module if distributed else model
         save_checkpoint(args.output, saved_model, optimizer,

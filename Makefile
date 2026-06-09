@@ -21,7 +21,7 @@ train-ppo:
 	$(PYTHON) scripts/train_ppo.py
 
 evaluate:
-	$(PYTHON) scripts/evaluate.py --games 20 --duplicate
+	$(PYTHON) scripts/evaluate.py --games 400 --duplicate
 
 export-bot:
 	$(PYTHON) scripts/export_bot.py

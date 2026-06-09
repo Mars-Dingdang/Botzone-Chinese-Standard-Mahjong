@@ -24,7 +24,7 @@ if [[ ! -f "$TENSOR_DIR/tensor_metadata.json" ]]; then
 else
   echo "using existing tensor cache: $TENSOR_DIR"
 fi
-torchrun --standalone --nproc_per_node=2 scripts/train_bc.py --data "$TENSOR_DIR" --output "$RUN_DIR/bc_model.pt" --epochs "${BC_EPOCHS:-5}" --batch-size "${BC_BATCH_SIZE:-4096}"
-python scripts/evaluate.py --model "$RUN_DIR/bc_model.best.pt" --games "${EVAL_GAMES:-40}" --duplicate | tee "$RUN_DIR/bc_eval.json"
+torchrun --standalone --nproc_per_node=2 scripts/train_bc.py --data "$TENSOR_DIR" --output "$RUN_DIR/bc_model.pt" --epochs "${BC_EPOCHS:-15}" --patience "${BC_PATIENCE:-3}" --batch-size "${BC_BATCH_SIZE:-4096}"
+python scripts/evaluate.py --model "$RUN_DIR/bc_model.best.pt" --policy-name bc --games "${EVAL_GAMES:-400}" --seed "${EVAL_SEED:-2026}" --duplicate | tee "$RUN_DIR/bc_eval.json"
 torchrun --standalone --nproc_per_node=2 scripts/train_ppo.py --checkpoint "$RUN_DIR/bc_model.best.pt" --output "$RUN_DIR/ppo_model.pt" --updates "${PPO_UPDATES:-100}" --games-per-update "${PPO_GAMES_PER_UPDATE:-8}" --save-every 10
-python scripts/evaluate.py --model "$RUN_DIR/ppo_model.pt" --games "${EVAL_GAMES:-40}" --duplicate | tee "$RUN_DIR/ppo_eval.json"
+python scripts/select_best_ppo.py --bc "$RUN_DIR/bc_model.best.pt" --ppo-glob "$RUN_DIR/ppo_model.update-*.pt" --output "$RUN_DIR/final_model.pt" --report "$RUN_DIR/model_selection.json" --games "${EVAL_GAMES:-400}" --seed "${EVAL_SEED:-2026}"

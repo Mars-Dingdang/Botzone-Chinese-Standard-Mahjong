@@ -100,6 +100,37 @@ class RulesBackend(object):
     def can_hu(self, counts, melds=(), win_tile=-1, context=None, min_fan=8):
         return self.fan(counts, melds, win_tile, context) >= min_fan
 
+    def strict_can_hu(self, counts, melds=(), win_tile=-1, context=None, min_fan=8):
+        """Return true only when the official calculator proves the hand legal."""
+        if not self.has_official or win_tile < 0 or context is None:
+            return False
+        try:
+            hand = []
+            work = list(counts)
+            work[win_tile] -= 1
+            for tile, count in enumerate(work):
+                hand.extend([_tile_to_name(tile)] * count)
+            pack = []
+            for meld in melds:
+                kind = meld.kind.name
+                representative = meld.tiles[1] if kind == "CHI" else meld.tiles[0]
+                offer = (context.get("player_id", 0) - meld.from_player) % 4
+                pack.append((kind, _tile_to_name(representative), offer))
+            result = self.official_fan_calculator(
+                tuple(pack), tuple(hand), _tile_to_name(win_tile),
+                int(context.get("flower_count", 0)),
+                bool(context.get("self_drawn", False)),
+                bool(context.get("fourth_tile", False)),
+                bool(context.get("about_kong", False)),
+                bool(context.get("wall_last", False)),
+                int(context.get("seat_wind", 0)),
+                int(context.get("prevalent_wind", 0)),
+                verbose=False,
+            )
+            return sum(item[0] for item in result) >= min_fan
+        except Exception:
+            return False
+
     def shanten(self, counts, melds=()):
         """Return an exact but intentionally simple distance-to-win estimate."""
         if self.is_complete_hand(counts, melds):

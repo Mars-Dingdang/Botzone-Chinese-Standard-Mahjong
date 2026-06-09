@@ -14,6 +14,7 @@ class ModelPolicy(object):
 
     def act(self, observation, legal_actions):
         torch = self.torch
+        self.model.eval()
         device = next(self.model.parameters()).device
         with torch.no_grad():
             features = torch.tensor(
