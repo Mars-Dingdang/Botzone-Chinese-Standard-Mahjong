@@ -1,0 +1,4 @@
+d_model: 192
+layers: 4
+heads: 6
+dropout: 0.1

@@ -1,0 +1,2 @@
+# Botzone heuristic deployment has no external dependencies.
+# Add torch>=1.4 only when deploying ModelPolicy.
