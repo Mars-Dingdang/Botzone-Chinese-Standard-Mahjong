@@ -1,3 +1,4 @@
 games: 1000
 duplicate_walls: 100
 seed: 2026
+selection_rule: paired_delta_95_ci_lower>=0

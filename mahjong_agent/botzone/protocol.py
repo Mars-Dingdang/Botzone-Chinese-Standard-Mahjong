@@ -188,4 +188,7 @@ class ProtocolState(object):
             "prevalent_wind": self.prevalent_wind,
             "events": list(self.events[-128:]),
             "last_discard": self.last_discard,
+            "wall_last": self.wall_last,
+            "about_kong": self.claim_hu_only,
+            "claim_hu_only": self.claim_hu_only,
         }

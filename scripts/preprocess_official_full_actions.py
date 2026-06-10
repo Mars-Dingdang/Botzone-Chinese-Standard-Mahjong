@@ -34,12 +34,17 @@ class FullActionState(object):
                 "hand": list(self.hands[player]), "melds": [list(x) for x in self.melds],
                 "discards": [list(x) for x in self.discards], "wall_remaining": sum(self.wall),
                 "wall_remaining_by_player": list(self.wall), "events": list(self.events[-128:]),
-                "last_discard": self.last, "prevalent_wind": self.wind}
+                "last_discard": self.last, "prevalent_wind": self.wind,
+                "wall_last": sum(self.wall) == 0, "about_kong": False,
+                "claim_hu_only": False}
 
     def _record(self, player, phase, actions):
         unique = list(dict((action.key(), action) for action in actions).values())
         return {"player": player, "observation": compact_observation(self.observation(player, phase)),
-                "legal": unique}
+                "legal": unique, "belief_counts": [
+                    [self.hands[(player + relative) % 4].count(tile) for tile in range(34)]
+                    for relative in (1, 2, 3)
+                ]}
 
     @staticmethod
     def _can_hu_fast(counts, melds):
@@ -105,7 +110,8 @@ class FullActionState(object):
             return None
         return {"observation": record["observation"], "actions_raw": [serialize_action(x) for x in actions],
                 "target": next(i for i, item in enumerate(actions) if item.key() == action.key()),
-                "action_family": action_family}
+                "action_family": action_family, "player": record["player"],
+                "belief_counts": record["belief_counts"]}
 
     def apply(self, parts):
         rows = []
@@ -178,32 +184,56 @@ def process_chunk(task):
     import pyarrow.parquet as pq
     state = FullActionState(); rows = []; failures = 0; families = Counter()
     for match_id, lines in matches:
-        state.reset(); split = "val" if match_id % 20 == 0 else "train"
+        state.reset(); split = "val" if match_id % 20 == 0 else "train"; match_rows = []
+        scores = [0, 0, 0, 0]; fan = 0; winner = loser = -1
         for parts in lines:
             try:
+                if parts[0] == "Fan":
+                    fan = int(parts[1])
+                if parts[0] == "Score":
+                    scores = [int(value) for value in parts[1:5]]
+                if parts[0] == "Player" and len(parts) > 2 and parts[2] == "Hu":
+                    winner = int(parts[1])
                 for row in state.apply(parts):
                     if row is None: continue
-                    row["split"] = split; rows.append(row); families[row["action_family"]] += 1
+                    match_rows.append(row); families[row["action_family"]] += 1
             except (ValueError, IndexError, KeyError): failures += 1; state.pending.clear(); state.claim_pending.clear()
+        for row in match_rows:
+            if winner >= 0:
+                losing_scores = [scores[player] for player in range(4) if player != winner]
+                loser = -1 if len(set(losing_scores)) == 1 else min(
+                    (player for player in range(4) if player != winner),
+                    key=lambda player: scores[player])
+            player = row.pop("player")
+            row["split"] = split
+            row["aux_labels"] = {
+                "win": int(player == winner), "deal_in": int(player == loser),
+                "score": scores[player] / 64.0, "fan_bucket": min(4, fan // 8),
+                "eight_fan": int(player == winner and fan >= 8),
+            }
+        rows.extend(match_rows)
     if rows: pq.write_table(pa.Table.from_pylist(rows), os.path.join(output_dir, "part-%05d.parquet" % chunk_id), compression=compression)
     return len(matches), len(rows), failures, dict(families)
 
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--input", default="Chinese-Standard-Mahjong/SL/data/data.txt")
-    parser.add_argument("--output-dir", default="artifacts/official_bc_full_v2"); parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
+    parser.add_argument("--output-dir", default="artifacts/official_bc_full_v3"); parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     parser.add_argument("--chunk-matches", type=int, default=500); parser.add_argument("--max-matches", type=int, default=0)
     args = parser.parse_args(); os.makedirs(args.output_dir, exist_ok=True); started = time.time(); totals = [0, 0, 0]; families = Counter()
     tasks = ((i, chunk, args.output_dir, "zstd") for i, chunk in enumerate(match_chunks(args.input, args.chunk_matches, args.max_matches)))
     with mp.get_context("fork").Pool(args.workers, maxtasksperchild=8) as pool:
-        for done, (matches, samples, failures, counts) in enumerate(pool.imap_unordered(process_chunk, tasks), 1):
+        from tqdm import tqdm
+        for done, (matches, samples, failures, counts) in enumerate(
+                tqdm(pool.imap_unordered(process_chunk, tasks), desc="preprocess",
+                     unit="chunk"), 1):
             totals = [totals[0] + matches, totals[1] + samples, totals[2] + failures]; families.update(counts)
             if done % 4 == 0:
                 elapsed = time.time() - started
                 print("chunks=%d matches=%d samples=%d failures=%d rate=%.1f matches/s" % (
                     done, totals[0], totals[1], totals[2], totals[0] / max(elapsed, 1e-6)
                 ), flush=True)
-    metadata = {"version": 2, "matches": totals[0], "samples": totals[1], "failures": totals[2], "families": dict(families), "seconds": time.time() - started}
+    metadata = {"version": 3, "feature_version": 2, "matches": totals[0], "samples": totals[1], "failures": totals[2], "families": dict(families), "seconds": time.time() - started}
     with open(os.path.join(args.output_dir, "metadata.json"), "w") as handle: json.dump(metadata, handle, indent=2, sort_keys=True)
     print(json.dumps(metadata, sort_keys=True))
 

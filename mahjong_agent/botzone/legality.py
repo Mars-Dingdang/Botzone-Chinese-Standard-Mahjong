@@ -5,6 +5,7 @@ from collections import Counter
 from mahjong_agent.engine.actions import Action, ActionType
 from mahjong_agent.engine.tiles import is_suited, name_to_tile
 from mahjong_agent.rules import default_backend
+from mahjong_agent.rules.legality import can_kong
 
 
 def hu_context(state, self_drawn):
@@ -41,7 +42,7 @@ def strict_legal_actions(state):
         actions = [Action.play(tile) for tile in sorted(set(hand))]
         if _strict_can_hu(state, state.drawn_tile, True):
             actions.append(Action.hu())
-        if not state.wall_last and state.wall_remaining_by_player[state.player_id] > 0:
+        if can_kong(state.wall_last, state.wall_remaining_by_player[state.player_id]):
             counts = Counter(hand)
             actions.extend(Action(ActionType.GANG, tile)
                            for tile, count in counts.items() if count == 4)
@@ -68,7 +69,8 @@ def strict_legal_actions(state):
         remaining.remove(tile)
         actions.extend(Action(ActionType.PENG, tile, (), discard)
                        for discard in sorted(set(remaining)))
-    if counts[tile] >= 3 and state.wall_remaining_by_player[state.player_id] > 0:
+    if counts[tile] >= 3 and can_kong(
+            state.wall_last, state.wall_remaining_by_player[state.player_id]):
         actions.append(Action(ActionType.GANG, tile))
     if state.player_id == (source + 1) % 4 and is_suited(tile):
         base, offset = tile - tile % 9, tile % 9

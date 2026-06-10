@@ -4,3 +4,18 @@ learning_rate: 0.0001
 clip_ratio: 0.2
 value_coef: 0.5
 entropy_coef: 0.01
+feature_version: 2
+history_capacity: 8
+opponent_mix:
+  current_best: 0.40
+  history: 0.30
+  bc_heuristic: 0.25
+  random: 0.05
+reward:
+  score_scale: 64
+  efficiency_coef: 0.02
+  fan_feasibility_coef: 0.02
+  deal_in_risk_coef: 0.01
+  draw_tenpai_coef: 0.0
+  step_shaping_cap: 0.1
+  episode_shaping_cap: 1.0

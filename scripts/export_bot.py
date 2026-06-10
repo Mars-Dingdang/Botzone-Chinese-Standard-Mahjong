@@ -15,9 +15,12 @@ RUNTIME_FILES = [
     "mahjong_agent/engine/__init__.py", "mahjong_agent/engine/actions.py", "mahjong_agent/engine/tiles.py",
     "mahjong_agent/engine/env.py",
     "mahjong_agent/features/__init__.py", "mahjong_agent/features/encoder.py",
+    "mahjong_agent/features/token_encoder.py",
     "mahjong_agent/models/__init__.py", "mahjong_agent/models/hybrid_transformer.py",
+    "mahjong_agent/models/token_transformer.py", "mahjong_agent/models/factory.py",
     "mahjong_agent/policies/__init__.py", "mahjong_agent/policies/baseline.py", "mahjong_agent/policies/model.py",
     "mahjong_agent/rules/__init__.py", "mahjong_agent/rules/backend.py",
+    "mahjong_agent/rules/legality.py",
     "mahjong_agent/training/__init__.py", "mahjong_agent/training/checkpoint.py",
     "mahjong_agent/training/rollout.py",
 ]

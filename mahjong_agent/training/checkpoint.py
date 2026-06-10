@@ -26,19 +26,47 @@ def save_checkpoint(path, model, optimizer=None, metadata=None, scheduler=None):
         "scheduler": scheduler.state_dict() if scheduler else None,
         "metadata": dict(metadata or {}),
     }
-    payload["metadata"].update({"created_at": time.time(), "commit": _commit()})
+    payload["metadata"].update({
+        "created_at": time.time(), "commit": _commit(),
+        "feature_version": int(getattr(model, "feature_version", 1)),
+        "model_class": model.__class__.__name__,
+        "model_config": dict(getattr(model, "model_config", {})),
+    })
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     torch.save(payload, path, _use_new_zipfile_serialization=False)
     with open(path + ".json", "w") as handle:
         json.dump(payload["metadata"], handle, indent=2, sort_keys=True)
 
 
-def load_checkpoint(path, model, optimizer=None, map_location="cpu", scheduler=None):
+def checkpoint_metadata(path, map_location="cpu"):
+    import torch
+    return torch.load(path, map_location=map_location).get("metadata", {})
+
+
+def load_checkpoint(path, model, optimizer=None, map_location="cpu", scheduler=None,
+                    allow_version_mismatch=False):
     import torch
     payload = torch.load(path, map_location=map_location)
+    metadata = payload.get("metadata", {})
+    expected = int(getattr(model, "feature_version", 1))
+    actual = int(metadata.get("feature_version", 1))
+    if not allow_version_mismatch and expected != actual:
+        raise ValueError("checkpoint feature_version=%d cannot load into model version=%d"
+                         % (actual, expected))
     model.load_state_dict(payload["model"])
     if optimizer is not None and payload.get("optimizer"):
         optimizer.load_state_dict(payload["optimizer"])
     if scheduler is not None and payload.get("scheduler"):
         scheduler.load_state_dict(payload["scheduler"])
-    return payload.get("metadata", {})
+    return metadata
+
+
+def load_model_from_checkpoint(path, map_location="cpu"):
+    from mahjong_agent.models import create_model
+    metadata = checkpoint_metadata(path, map_location)
+    model = create_model(metadata.get("feature_version", 1),
+                         **metadata.get("model_config", {}))
+    if hasattr(model, "belief_mode"):
+        model.belief_mode = metadata.get("belief_mode", "aux")
+    load_checkpoint(path, model, map_location=map_location)
+    return model, metadata

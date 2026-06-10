@@ -1,6 +1,7 @@
 import unittest
 
 from mahjong_agent.engine import Action, ActionType, MahjongEnv
+from mahjong_agent.engine.actions import Meld
 from mahjong_agent.engine.tiles import full_wall, name_to_tile, tile_to_name
 from mahjong_agent.policies import RandomPolicy
 from mahjong_agent.training.rollout import play_episode
@@ -65,6 +66,32 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(env.current_player, 2)
         self.assertEqual(env.phase, "claim")
         self.assertEqual(env.melds[1][0].kind, ActionType.PENG)
+
+    def test_bugang_waits_for_rob_kong_responses(self):
+        env = MahjongEnv()
+        env.reset(seed=1)
+        env.current_player = 0
+        env.phase = "discard"
+        env.hands[0] = [0] + list(range(1, 14))
+        env.melds[0] = [Meld(ActionType.PENG, (0, 0, 0), 1)]
+        env.step(Action(ActionType.BUGANG, 0))
+        self.assertEqual(env.phase, "claim")
+        self.assertTrue(env.claim_hu_only)
+        self.assertEqual(env.hands[0].count(0), 1)
+        for _ in range(3):
+            env.step(Action.pass_())
+        self.assertFalse(env.claim_hu_only)
+        self.assertEqual(env.melds[0][0].kind, ActionType.GANG)
+
+    def test_wall_last_forbids_claims_and_kongs(self):
+        env = MahjongEnv()
+        env.reset(seed=1)
+        env.wall = []
+        env.current_player = 1
+        env.phase = "claim"
+        env.last_discard = (0, 0)
+        env.hands[1] = [0, 0, 0] + list(range(1, 11))
+        self.assertEqual([action.kind for action in env.legal_actions()], [ActionType.PASS])
 
 
 if __name__ == "__main__":

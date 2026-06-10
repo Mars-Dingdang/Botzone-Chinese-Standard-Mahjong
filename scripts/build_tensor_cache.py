@@ -5,9 +5,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mahjong_agent.features import (FEATURE_SIZE, deserialize_action,
-                                    encode_action, encode_observation,
-                                    expand_observation)
+from mahjong_agent.features import (deserialize_action, encode_action_v2,
+                                    encode_observation_v2, expand_observation)
+from mahjong_agent.features.token_encoder import (MAX_ACTION_TOKENS,
+                                                  MAX_STATE_TOKENS, TOKEN_SIZE)
 
 ACTION_SIZE = 8
 
@@ -24,24 +25,37 @@ def convert(task):
         selected = [row for row in rows if row["split"] == split]
         if not selected: continue
         n = len(selected)
-        features = torch.empty(n, FEATURE_SIZE, dtype=torch.float16)
-        actions = torch.zeros(n, max_actions, ACTION_SIZE, dtype=torch.float16)
+        features = torch.zeros(n, MAX_STATE_TOKENS, TOKEN_SIZE, dtype=torch.float16)
+        feature_masks = torch.zeros(n, MAX_STATE_TOKENS, dtype=torch.bool)
+        actions = torch.zeros(n, max_actions, MAX_ACTION_TOKENS, TOKEN_SIZE, dtype=torch.float16)
+        action_token_masks = torch.zeros(n, max_actions, MAX_ACTION_TOKENS, dtype=torch.bool)
         masks = torch.zeros(n, max_actions, dtype=torch.bool)
         targets = torch.tensor([row["target"] for row in selected], dtype=torch.long)
+        aux = torch.zeros(n, 4, dtype=torch.float32)
+        fan_targets = torch.zeros(n, dtype=torch.long)
+        belief = torch.zeros(n, 3, 34, dtype=torch.long)
         for index, row in enumerate(selected):
-            if "features" in row:
-                features[index] = torch.tensor(row["features"], dtype=torch.float16)
-                encoded_actions = row["actions"]
-            else:
-                observation = expand_observation(row["observation"])
-                features[index] = torch.tensor(encode_observation(observation), dtype=torch.float16)
-                encoded_actions = [encode_action(deserialize_action(action)) for action in row["actions_raw"]]
+            observation = expand_observation(row["observation"])
+            encoded_feature, encoded_feature_mask = encode_observation_v2(observation)
+            features[index] = torch.tensor(encoded_feature, dtype=torch.float16)
+            feature_masks[index] = torch.tensor(encoded_feature_mask, dtype=torch.bool)
+            encoded_actions = [encode_action_v2(deserialize_action(action)) for action in row["actions_raw"]]
             count = len(encoded_actions)
             if count > max_actions: raise ValueError("action count %d exceeds %d" % (count, max_actions))
-            actions[index, :count] = torch.tensor(encoded_actions, dtype=torch.float16)
+            actions[index, :count] = torch.tensor([item[0] for item in encoded_actions], dtype=torch.float16)
+            action_token_masks[index, :count] = torch.tensor([item[1] for item in encoded_actions], dtype=torch.bool)
             masks[index, :count] = True
+            labels = row.get("aux_labels") or {}
+            aux[index] = torch.tensor([labels.get("win", 0), labels.get("deal_in", 0),
+                                       labels.get("score", 0), labels.get("eight_fan", 0)])
+            fan_targets[index] = int(labels.get("fan_bucket", 0))
+            belief[index] = torch.tensor(row.get("belief_counts", [[0] * 34 for _ in range(3)]),
+                                         dtype=torch.long)
         output = os.path.join(output_dir, "%s-%s.pt" % (split, stem))
-        torch.save({"features": features, "actions": actions, "masks": masks, "targets": targets}, output)
+        torch.save({"features": features, "feature_masks": feature_masks,
+                    "actions": actions, "action_token_masks": action_token_masks,
+                    "masks": masks, "targets": targets, "aux_labels": aux,
+                    "fan_targets": fan_targets, "belief_targets": belief}, output)
         result.append({"path": os.path.basename(output), "split": split, "samples": n})
     return result
 
@@ -52,10 +66,15 @@ def main():
     paths = sorted(glob.glob(os.path.join(a.input_dir, "*.parquet")))
     entries = []
     with mp.get_context("fork").Pool(a.workers, maxtasksperchild=16) as pool:
-        for index, value in enumerate(pool.imap_unordered(convert, ((path, a.output_dir, a.max_actions) for path in paths)), 1):
+        from tqdm import tqdm
+        work = ((path, a.output_dir, a.max_actions) for path in paths)
+        for index, value in enumerate(tqdm(pool.imap_unordered(convert, work),
+                                           total=len(paths), desc="tensor-cache",
+                                           unit="shard"), 1):
             entries.extend(value)
             if index % 20 == 0: print("converted=%d/%d tensor_shards=%d" % (index, len(paths), len(entries)), flush=True)
-    metadata = {"format": "torch-tensor-cache", "max_actions": a.max_actions, "shards": sorted(entries, key=lambda x: x["path"])}
+    metadata = {"format": "torch-tensor-cache", "feature_version": 2,
+                "max_actions": a.max_actions, "shards": sorted(entries, key=lambda x: x["path"])}
     with open(os.path.join(a.output_dir, "tensor_metadata.json"), "w") as f: json.dump(metadata, f, indent=2)
     print("train=%d val=%d" % (sum(x["samples"] for x in entries if x["split"] == "train"), sum(x["samples"] for x in entries if x["split"] == "val")))
 if __name__ == "__main__": main()

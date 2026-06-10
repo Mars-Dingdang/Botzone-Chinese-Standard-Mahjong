@@ -10,12 +10,18 @@ from mahjong_agent.features.encoder import ACTION_SIZE, FEATURE_SIZE
 
 
 class HybridTransformer(nn.Module):
+    feature_version = 1
     def __init__(self, feature_size=FEATURE_SIZE, action_size=ACTION_SIZE,
                  d_model=192, layers=4, heads=6, dropout=0.1):
         super(HybridTransformer, self).__init__()
         self.feature_size = feature_size
         self.action_size = action_size
         self.d_model = d_model
+        self.model_config = {
+            "feature_size": feature_size, "action_size": action_size,
+            "d_model": d_model, "layers": layers, "heads": heads,
+            "dropout": dropout,
+        }
         self.state_encoder = nn.Sequential(
             nn.Linear(feature_size, d_model * 4),
             nn.ReLU(),

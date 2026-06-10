@@ -27,7 +27,7 @@ def generalized_advantage_estimate(rewards, values, gamma=0.99, gae_lambda=0.95)
 
 def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                entropy_coef=0.01, epochs=4, target_kl=0.02, bc_kl_coef=0.01,
-               minibatch_size=1024):
+               minibatch_size=1024, aux_coef=0.05):
     import torch
     model.train()
     # PPO ratios require deterministic old/new log probabilities. Keep gradients
@@ -61,7 +61,11 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
             old_log_probs = batch["old_log_probs"][index]
             advantages = batch["advantages"][index]
             returns = batch["returns"][index]
-            output = model(features, actions, masks)
+            kwargs = {}
+            if batch.get("feature_masks") is not None:
+                kwargs["feature_mask"] = batch["feature_masks"][index]
+                kwargs["action_token_mask"] = batch["action_token_masks"][index]
+            output = model(features, actions, masks, **kwargs)
             distribution = torch.distributions.Categorical(logits=output["logits"])
             log_probs = distribution.log_prob(chosen)
             ratio = (log_probs - old_log_probs).exp()
@@ -75,8 +79,25 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
             if batch.get("reference_logits") is not None and bc_kl_coef:
                 reference = torch.distributions.Categorical(logits=batch["reference_logits"][index])
                 bc_kl = torch.distributions.kl_divergence(reference, distribution).mean()
+            aux_loss = torch.zeros((), device=features.device)
+            if batch.get("aux_labels") is not None and "outcome" in output:
+                labels = batch["aux_labels"][index]
+                binary = torch.nn.functional.binary_cross_entropy_with_logits(
+                    output["outcome"][:, [0, 1, 3]], labels[:, [0, 1, 3]])
+                score = torch.nn.functional.mse_loss(output["outcome"][:, 2], labels[:, 2])
+                fan = torch.nn.functional.cross_entropy(
+                    output["fan_logits"], batch["fan_targets"][index])
+                belief = torch.nn.functional.cross_entropy(
+                    output["belief_logits"].reshape(-1, 5),
+                    batch["belief_targets"][index].reshape(-1))
+                values = torch.arange(5, device=features.device).float()
+                expected = (output["belief_logits"].softmax(-1) * values).sum(-1)
+                constraint = torch.nn.functional.mse_loss(
+                    expected.sum(-1) / 14.0,
+                    batch["belief_targets"][index].float().sum(-1) / 14.0)
+                aux_loss = binary + score + fan + belief + .01 * constraint
             loss = (policy_loss + value_coef * value_loss - entropy_coef * entropy
-                    + bc_kl_coef * bc_kl + 0.0 * output["aux"].sum())
+                    + bc_kl_coef * bc_kl + aux_coef * aux_loss)
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -87,6 +108,7 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                 "loss": loss, "policy_loss": policy_loss, "value_loss": value_loss,
                 "entropy": entropy, "approx_kl": approx_kl, "clip_fraction": clip_fraction,
                 "explained_variance": explained, "bc_kl": bc_kl,
+                "aux_loss": aux_loss,
             }
             for key, value in values.items():
                 totals[key] = totals.get(key, 0.0) + float(value.item())

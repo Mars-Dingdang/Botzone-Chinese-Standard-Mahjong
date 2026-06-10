@@ -36,6 +36,17 @@ def deserialize_action(data):
 
 
 def compact_observation(observation):
+    events = []
+    for event in observation["events"]:
+        if not event:
+            continue
+        integers = [item for item in event[1:] if isinstance(item, int)]
+        events.append({
+            "kind": str(event[0]).upper(),
+            "player": integers[0] if integers else -1,
+            "tile": next((item for item in integers[1:] if 0 <= item < 34), -1),
+            "extra": integers[-1] if len(integers) > 2 else -1,
+        })
     return {
         "player_id": int(observation["player_id"]),
         "current_player": int(observation["current_player"]),
@@ -45,13 +56,28 @@ def compact_observation(observation):
         "discards": [[int(tile) for tile in river] for river in observation["discards"]],
         "wall_remaining": int(observation["wall_remaining"]),
         "wall_remaining_by_player": [int(value) for value in observation.get("wall_remaining_by_player", [0, 0, 0, 0])],
-        "events": [str(event[0]).upper() if event else "" for event in observation["events"]],
+        "events": events,
         "last_discard": list(observation["last_discard"]) if observation.get("last_discard") else [-1, -1],
         "prevalent_wind": int(observation.get("prevalent_wind", 0)),
+        "wall_last": bool(observation.get("wall_last", False)),
+        "about_kong": bool(observation.get("about_kong", False)),
+        "claim_hu_only": bool(observation.get("claim_hu_only", False)),
     }
 
 
 def expand_observation(observation):
+    events = []
+    for event in observation.get("events", []):
+        if isinstance(event, dict):
+            values = [event.get("kind", "")]
+            values.extend(value for value in (
+                int(event.get("player", -1)), int(event.get("tile", -1)),
+                int(event.get("extra", -1))) if value >= 0)
+            events.append(tuple(values))
+        elif isinstance(event, (list, tuple)):
+            events.append(tuple(event))
+        elif event:
+            events.append((event,))
     return {
         "player_id": int(observation["player_id"]),
         "current_player": int(observation["current_player"]),
@@ -61,9 +87,12 @@ def expand_observation(observation):
         "discards": [[int(tile) for tile in river] for river in observation["discards"]],
         "wall_remaining": int(observation["wall_remaining"]),
         "wall_remaining_by_player": [int(value) for value in observation.get("wall_remaining_by_player", [0, 0, 0, 0])],
-        "events": [(event,) for event in observation.get("events", []) if event],
+        "events": events,
         "last_discard": None if not observation.get("last_discard") or int(observation["last_discard"][0]) < 0 else (int(observation["last_discard"][0]), int(observation["last_discard"][1])),
         "prevalent_wind": int(observation.get("prevalent_wind", 0)),
+        "wall_last": bool(observation.get("wall_last", False)),
+        "about_kong": bool(observation.get("about_kong", False)),
+        "claim_hu_only": bool(observation.get("claim_hu_only", False)),
     }
 
 

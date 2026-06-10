@@ -11,6 +11,7 @@ from collections import Counter
 from .actions import Action, ActionType, Meld
 from .tiles import full_wall, is_suited
 from mahjong_agent.rules import default_backend
+from mahjong_agent.rules.legality import action_allowed_in_claim, can_kong
 
 
 class MahjongEnv(object):
@@ -19,7 +20,7 @@ class MahjongEnv(object):
         self.min_fan = min_fan
         self.reset()
 
-    def reset(self, seed=None, wall=None):
+    def reset(self, seed=None, wall=None, prevalent_wind=None):
         rng = random.Random(seed)
         self.wall = list(wall) if wall is not None else full_wall()
         if wall is None:
@@ -31,7 +32,7 @@ class MahjongEnv(object):
         self.discards = [[] for _ in range(4)]
         self.events = []
         self.current_player = 0
-        self.prevalent_wind = (seed or 0) % 4
+        self.prevalent_wind = (seed or 0) % 4 if prevalent_wind is None else int(prevalent_wind)
         self.phase = "draw"
         self.last_discard = None
         self.pending_claimers = []
@@ -42,6 +43,8 @@ class MahjongEnv(object):
         self.fan_count = 0
         self.drawn_tile = None
         self.about_kong = False
+        self.claim_hu_only = False
+        self.pending_bugang = None
         self.invalid_actions = 0
         for _ in range(13):
             for player in range(4):
@@ -81,6 +84,9 @@ class MahjongEnv(object):
             "prevalent_wind": self.prevalent_wind,
             "events": list(self.events[-128:]),
             "last_discard": self.last_discard,
+            "wall_last": not self.wall,
+            "about_kong": self.about_kong,
+            "claim_hu_only": self.claim_hu_only,
         }
 
     def _claim_actions(self, player):
@@ -93,17 +99,21 @@ class MahjongEnv(object):
         if self.rules.can_hu(counts, self.melds[player], tile,
                              context=self._fan_context(player, False), min_fan=self.min_fan):
             actions.append(Action.hu())
+        if self.claim_hu_only:
+            return actions
         counts[tile] -= 1
         hand_counts = self._counts(player)
+        if not self.wall and hand_counts[tile] >= 2:
+            return actions
         if hand_counts[tile] >= 2:
             remaining = list(self.hands[player])
             remaining.remove(tile)
             remaining.remove(tile)
             for discard in sorted(set(remaining)):
                 actions.append(Action(ActionType.PENG, tile, (), discard))
-        if hand_counts[tile] >= 3:
+        if hand_counts[tile] >= 3 and can_kong(not self.wall, len(self.wall)):
             actions.append(Action(ActionType.GANG, tile))
-        if player == (source + 1) % 4 and is_suited(tile):
+        if self.wall and player == (source + 1) % 4 and is_suited(tile):
             base = tile - tile % 9
             rank_index = tile % 9
             for start in range(max(0, rank_index - 2), min(6, rank_index) + 1):
@@ -129,10 +139,11 @@ class MahjongEnv(object):
                 context=self._fan_context(player, True), min_fan=self.min_fan):
             actions.append(Action.hu())
         for tile, count in enumerate(counts):
-            if count == 4:
+            if count == 4 and can_kong(not self.wall, len(self.wall)):
                 actions.append(Action(ActionType.GANG, tile))
         for meld in self.melds[player]:
-            if meld.kind == ActionType.PENG and counts[meld.tiles[0]]:
+            if (meld.kind == ActionType.PENG and counts[meld.tiles[0]]
+                    and can_kong(not self.wall, len(self.wall))):
                 actions.append(Action(ActionType.BUGANG, meld.tiles[0]))
         return actions
 
@@ -153,6 +164,7 @@ class MahjongEnv(object):
             self.discards[player].append(action.tile)
             self.last_discard = (player, action.tile)
             self.events.append(("PLAY", player, action.tile))
+            self.about_kong = False
             self.pending_claimers = [(player + offset) % 4 for offset in (1, 2, 3)]
             self.claim_responses = {}
             self.current_player = self.pending_claimers[0]
@@ -178,15 +190,15 @@ class MahjongEnv(object):
             self._draw()
         elif action.kind == ActionType.BUGANG:
             tile = action.tile
-            self.hands[player].remove(tile)
-            index = next(i for i, meld in enumerate(self.melds[player])
-                         if meld.kind == ActionType.PENG and meld.tiles[0] == tile)
-            old = self.melds[player][index]
-            self.melds[player][index] = Meld(ActionType.GANG, (tile,) * 4, old.from_player)
             self.events.append(("BUGANG", player, tile))
-            self.phase = "draw"
+            self.last_discard = (player, tile)
+            self.pending_bugang = (player, tile)
+            self.pending_claimers = [(player + offset) % 4 for offset in (1, 2, 3)]
+            self.claim_responses = {}
+            self.current_player = self.pending_claimers[0]
+            self.phase = "claim"
+            self.claim_hu_only = True
             self.about_kong = True
-            self._draw()
         return self.observe(player)
 
     def _fan_context(self, player, self_drawn):
@@ -231,6 +243,10 @@ class MahjongEnv(object):
                 if kind == ActionType.HU:
                     self._finish_hu(player, False)
                     return
+                if not action_allowed_in_claim(
+                        kind, player, source, not self.wall, self.claim_hu_only,
+                        len(self.wall)):
+                    continue
                 if kind in (ActionType.CHI, ActionType.PENG):
                     required = list(action.sequence if kind == ActionType.CHI else (tile, tile, tile))
                     required.remove(tile)
@@ -255,10 +271,25 @@ class MahjongEnv(object):
                 self.about_kong = True
                 self._draw()
                 return
+        if self.pending_bugang is not None:
+            player, tile = self.pending_bugang
+            self.hands[player].remove(tile)
+            index = next(i for i, meld in enumerate(self.melds[player])
+                         if meld.kind == ActionType.PENG and meld.tiles[0] == tile)
+            old = self.melds[player][index]
+            self.melds[player][index] = Meld(ActionType.GANG, (tile,) * 4, old.from_player)
+            self.pending_bugang = None
+            self.claim_hu_only = False
+            self.current_player = player
+            self.last_discard = None
+            self.phase = "draw"
+            self._draw()
+            return
         self.current_player = (source + 1) % 4
         self.last_discard = None
         self.phase = "draw"
         self.about_kong = False
+        self.claim_hu_only = False
         self._draw()
 
     def is_terminal(self):
@@ -281,5 +312,17 @@ class MahjongEnv(object):
             "scores": scores,
             "draw": self.winner is None,
             "invalid_actions": self.invalid_actions,
+            "fan_count": self.fan_count,
+            "self_drawn": self.winner is not None and self.loser is None,
+        }
+
+    def full_state(self):
+        """Privileged training labels; never returned by ``observe``."""
+        return {
+            "hands": [list(hand) for hand in self.hands],
+            "wall_counts": dict(Counter(self.wall)),
+            "scores": self.result()["scores"] if self.terminal else None,
+            "winner": self.winner,
+            "loser": self.loser,
             "fan_count": self.fan_count,
         }

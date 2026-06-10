@@ -98,9 +98,14 @@ def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps
     assignments, _ = tensor_shard_plan(path, split, world_size, batch_size)
     yielded = 0
     carry = None
-    keys = ("features", "actions", "masks", "targets")
+    keys = None
     for item in assignments[rank]:
         payload = torch.load(os.path.join(path, item["path"]), map_location="cpu", weights_only=True)
+        if keys is None:
+            keys = tuple(key for key in (
+                "features", "feature_masks", "actions", "action_token_masks",
+                "masks", "targets", "aux_labels", "fan_targets", "belief_targets")
+                if key in payload)
         current = tuple(payload[key] for key in keys)
         if carry is not None:
             current = tuple(torch.cat((left, right), dim=0) for left, right in zip(carry, current))
@@ -119,6 +124,18 @@ def has_tensor_cache(path):
 
 
 def collate_records(records, torch):
+    if records and "feature_mask" in records[0]:
+        return (
+            torch.tensor([record["features"] for record in records], dtype=torch.float32),
+            torch.tensor([record["feature_mask"] for record in records], dtype=torch.bool),
+            torch.tensor([record["actions"] for record in records], dtype=torch.float32),
+            torch.tensor([record["action_token_masks"] for record in records], dtype=torch.bool),
+            torch.tensor([record["mask"] for record in records], dtype=torch.bool),
+            torch.tensor([record["target"] for record in records], dtype=torch.long),
+            torch.tensor([record.get("aux_labels", [0.0] * 4) for record in records], dtype=torch.float32),
+            torch.tensor([record.get("fan_target", 0) for record in records], dtype=torch.long),
+            torch.tensor([record.get("belief_targets", [[0] * 34] * 3) for record in records], dtype=torch.long),
+        )
     max_actions = max(len(record["actions"]) for record in records)
     action_size = len(records[0]["actions"][0])
     features = []

@@ -17,11 +17,9 @@ def load_policy(model_path=None):
     model_path = model_path or os.environ.get("MAHJONG_MODEL", os.path.join("data", "model.pt"))
     try:
         import torch
-        from mahjong_agent.models.hybrid_transformer import HybridTransformer
         from mahjong_agent.policies.model import ModelPolicy
-        from mahjong_agent.training.checkpoint import load_checkpoint
-        model = HybridTransformer()
-        load_checkpoint(model_path, model)
+        from mahjong_agent.training.checkpoint import load_model_from_checkpoint
+        model, _ = load_model_from_checkpoint(model_path)
         model.to(torch.device("cpu"))
         return ModelPolicy(model)
     except Exception:

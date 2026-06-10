@@ -63,10 +63,8 @@ def main():
     if own_discard_response.get("response") != "PASS":
         raise RuntimeError("bot attempted to claim its own discard: %r" % own_discard_response)
     import torch
-    from mahjong_agent.models.hybrid_transformer import HybridTransformer
-    from mahjong_agent.training.checkpoint import load_checkpoint
-    model = HybridTransformer()
-    metadata = load_checkpoint(args.model, model)
+    from mahjong_agent.training.checkpoint import load_model_from_checkpoint
+    model, metadata = load_model_from_checkpoint(args.model)
     print("archive verified; model loaded; decision_latency=%.3fs torch=%s metadata=%r" % (
         decision_latency, torch.__version__, metadata))
 
