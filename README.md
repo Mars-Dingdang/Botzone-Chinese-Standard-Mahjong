@@ -276,3 +276,6 @@ seed 的 BC/PPO 复式评测比较。RL 退化通常来自稀疏奖励、rollout
 
 下一阶段应优先实现 Oracle Critic、扩大并行 rollout，并在固定牌墙评测下比较经验规则
 重排序、determinization rollout 与 ISMCTS。正式扩大训练前仍需补充 Botzone 协议黄金测试。
+
+<!-- nohup ssh -N -L 6443:api.ai.iiis.co:6443 ailab@js.ai.iiis.co -p 9022 & 
+-->
