@@ -14,6 +14,7 @@ from mahjong_agent.engine import Action, ActionType, Meld
 from mahjong_agent.engine.tiles import is_suited, name_to_tile
 from mahjong_agent.features import compact_observation, serialize_action
 from mahjong_agent.rules import default_backend
+from mahjong_agent.rules.legality import can_kong
 from scripts.preprocess_official_data import match_chunks
 
 
@@ -35,7 +36,7 @@ class FullActionState(object):
                 "discards": [list(x) for x in self.discards], "wall_remaining": sum(self.wall),
                 "wall_remaining_by_player": list(self.wall), "events": list(self.events[-128:]),
                 "last_discard": self.last, "prevalent_wind": self.wind,
-                "wall_last": sum(self.wall) == 0, "about_kong": False,
+                "wall_last": self.wall[(player + 1) % 4] == 0, "about_kong": False,
                 "claim_hu_only": False}
 
     def _record(self, player, phase, actions):
@@ -64,13 +65,16 @@ class FullActionState(object):
     def _draw_actions(self, player, drawn):
         actions = [Action.play(tile) for tile in sorted(set(self.hands[player]))]
         counts = Counter(self.hands[player])
-        actions.extend(Action(ActionType.GANG, tile) for tile, count in counts.items() if count == 4)
-        actions.extend(Action(ActionType.BUGANG, meld.tiles[0]) for meld in self.melds[player]
-                       if meld.kind == ActionType.PENG and counts[meld.tiles[0]])
+        wall_last = self.wall[(player + 1) % 4] == 0
+        if can_kong(wall_last, self.wall[player]):
+            actions.extend(Action(ActionType.GANG, tile)
+                           for tile, count in counts.items() if count == 4)
+            actions.extend(Action(ActionType.BUGANG, meld.tiles[0]) for meld in self.melds[player]
+                           if meld.kind == ActionType.PENG and counts[meld.tiles[0]])
         raw = [counts.get(tile, 0) for tile in range(34)]
         context = {"player_id": player, "seat_wind": player, "prevalent_wind": self.wind,
                    "self_drawn": True, "fourth_tile": False, "about_kong": False,
-                   "wall_last": sum(self.wall) == 0, "flower_count": 0}
+                   "wall_last": wall_last, "flower_count": 0}
         if self._can_hu_fast(raw, self.melds[player]) and default_backend.can_hu(raw, self.melds[player], drawn, context=context):
             actions.append(Action.hu())
         return actions
@@ -78,13 +82,14 @@ class FullActionState(object):
     def _claim_actions(self, player):
         source, tile = self.last
         actions = [Action.pass_()]
+        wall_last = self.wall[(source + 1) % 4] == 0
         counts = Counter(self.hands[player])
-        if counts[tile] >= 2:
+        if not wall_last and counts[tile] >= 2:
             remaining = list(self.hands[player]); remaining.remove(tile); remaining.remove(tile)
             actions.extend(Action(ActionType.PENG, tile, (), discard) for discard in sorted(set(remaining)))
-        if counts[tile] >= 3:
+        if counts[tile] >= 3 and can_kong(wall_last, self.wall[player]):
             actions.append(Action(ActionType.GANG, tile))
-        if player == (source + 1) % 4 and is_suited(tile):
+        if not wall_last and player == (source + 1) % 4 and is_suited(tile):
             base, rank = tile - tile % 9, tile % 9
             for start in range(max(0, rank - 2), min(6, rank) + 1):
                 seq = (base + start, base + start + 1, base + start + 2)
@@ -96,7 +101,7 @@ class FullActionState(object):
         raw = [counts.get(index, 0) for index in range(34)]; raw[tile] += 1
         context = {"player_id": player, "seat_wind": player, "prevalent_wind": self.wind,
                    "self_drawn": False, "fourth_tile": False, "about_kong": False,
-                   "wall_last": sum(self.wall) == 0, "flower_count": 0}
+                   "wall_last": wall_last, "flower_count": 0}
         if self._can_hu_fast(raw, self.melds[player]) and default_backend.can_hu(raw, self.melds[player], tile, context=context):
             actions.append(Action.hu())
         return actions
@@ -105,6 +110,8 @@ class FullActionState(object):
     def finalize(record, action, action_family):
         actions = record["legal"]
         if action.key() not in {item.key() for item in actions}:
+            # The archival target is an official executed action. Keep it as a
+            # legal target even when conservative generation omits it.
             actions.append(action)
         if len(actions) <= 1:
             return None
@@ -233,7 +240,7 @@ def main():
                 print("chunks=%d matches=%d samples=%d failures=%d rate=%.1f matches/s" % (
                     done, totals[0], totals[1], totals[2], totals[0] / max(elapsed, 1e-6)
                 ), flush=True)
-    metadata = {"version": 3, "feature_version": 2, "matches": totals[0], "samples": totals[1], "failures": totals[2], "families": dict(families), "seconds": time.time() - started}
+    metadata = {"version": 4, "feature_version": 2, "matches": totals[0], "samples": totals[1], "failures": totals[2], "families": dict(families), "seconds": time.time() - started}
     with open(os.path.join(args.output_dir, "metadata.json"), "w") as handle: json.dump(metadata, handle, indent=2, sort_keys=True)
     print(json.dumps(metadata, sort_keys=True))
 

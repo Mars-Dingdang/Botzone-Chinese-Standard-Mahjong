@@ -73,7 +73,7 @@ def main():
                                            unit="shard"), 1):
             entries.extend(value)
             if index % 20 == 0: print("converted=%d/%d tensor_shards=%d" % (index, len(paths), len(entries)), flush=True)
-    metadata = {"format": "torch-tensor-cache", "feature_version": 2,
+    metadata = {"format": "torch-tensor-cache", "feature_version": 2, "legality_version": 4,
                 "max_actions": a.max_actions, "shards": sorted(entries, key=lambda x: x["path"])}
     with open(os.path.join(a.output_dir, "tensor_metadata.json"), "w") as f: json.dump(metadata, f, indent=2)
     print("train=%d val=%d" % (sum(x["samples"] for x in entries if x["split"] == "train"), sum(x["samples"] for x in entries if x["split"] == "val")))

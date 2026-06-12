@@ -204,7 +204,11 @@ class MahjongEnv(object):
     def _fan_context(self, player, self_drawn):
         tile = self.drawn_tile if self_drawn else (self.last_discard[1] if self.last_discard else -1)
         visible = sum(river.count(tile) for river in self.discards)
-        visible += sum(meld.tiles.count(tile) for melds in self.melds for meld in melds)
+        for owner, melds in enumerate(self.melds):
+            for meld in melds:
+                visible += meld.tiles.count(tile)
+                if meld.from_player != owner and tile in meld.tiles:
+                    visible -= 1
         return {"player_id": player, "seat_wind": player,
                 "prevalent_wind": self.prevalent_wind, "self_drawn": self_drawn,
                 "fourth_tile": tile >= 0 and visible + int(self_drawn) >= 4,
@@ -252,7 +256,8 @@ class MahjongEnv(object):
                     required.remove(tile)
                     for item in required:
                         self.hands[player].remove(item)
-                    self.melds[player].append(Meld(kind, tuple(required + [tile]), source))
+                    meld_tiles = tuple(action.sequence) if kind == ActionType.CHI else (tile,) * 3
+                    self.melds[player].append(Meld(kind, meld_tiles, source))
                     self.hands[player].remove(action.discard)
                     self.discards[player].append(action.discard)
                     self.last_discard = (player, action.discard)

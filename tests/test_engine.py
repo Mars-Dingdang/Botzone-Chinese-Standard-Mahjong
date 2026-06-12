@@ -94,5 +94,21 @@ class EngineTest(unittest.TestCase):
         self.assertEqual([action.kind for action in env.legal_actions()], [ActionType.PASS])
 
 
+    def test_resolved_chi_keeps_sorted_sequence(self):
+        env = MahjongEnv()
+        env.reset(seed=1)
+        env.current_player = 0
+        env.phase = "discard"
+        env.hands[0] = [1] + list(range(2, 15))
+        env.hands[1] = [0, 2] + list(range(3, 14))
+        env.step(Action.play(1))
+        chi = next(action for action in env.legal_actions()
+                   if action.kind == ActionType.CHI and action.sequence == (0, 1, 2))
+        env.step(chi)
+        env.step(Action.pass_())
+        env.step(Action.pass_())
+        self.assertEqual(env.melds[1][0].tiles, (0, 1, 2))
+
+
 if __name__ == "__main__":
     unittest.main()

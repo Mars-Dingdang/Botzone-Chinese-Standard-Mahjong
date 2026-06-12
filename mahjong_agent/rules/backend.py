@@ -6,6 +6,7 @@ Production Botzone submissions should install/vendor PyMahjongGB.
 """
 
 from functools import lru_cache
+from itertools import product
 
 
 def _tile_to_name(tile):
@@ -50,6 +51,16 @@ def _standard_win(counts, meld_count):
     return False
 
 
+def _pack_variants(melds, player_id):
+    choices = []
+    for meld in melds:
+        kind = meld.kind.name
+        representative = sorted(meld.tiles)[1] if kind == "CHI" else meld.tiles[0]
+        offers = (1, 2, 3) if kind == "CHI" else ((player_id - meld.from_player) % 4,)
+        choices.append(tuple((kind, _tile_to_name(representative), offer) for offer in offers))
+    return product(*choices) if choices else ((),)
+
+
 class RulesBackend(object):
     def __init__(self):
         try:
@@ -73,24 +84,21 @@ class RulesBackend(object):
                 work[win_tile] -= 1
                 for tile, count in enumerate(work):
                     hand.extend([_tile_to_name(tile)] * count)
-                pack = []
-                for meld in melds:
-                    kind = meld.kind.name
-                    representative = meld.tiles[1] if kind == "CHI" else meld.tiles[0]
-                    offer = (context.get("player_id", 0) - meld.from_player) % 4
-                    pack.append((kind, _tile_to_name(representative), offer))
-                result = self.official_fan_calculator(
-                    tuple(pack), tuple(hand), _tile_to_name(win_tile),
-                    int(context.get("flower_count", 0)),
-                    bool(context.get("self_drawn", False)),
-                    bool(context.get("fourth_tile", False)),
-                    bool(context.get("about_kong", False)),
-                    bool(context.get("wall_last", False)),
-                    int(context.get("seat_wind", 0)),
-                    int(context.get("prevalent_wind", 0)),
-                    verbose=False,
-                )
-                return sum(item[0] for item in result)
+                totals = []
+                for pack in _pack_variants(melds, context.get("player_id", 0)):
+                    result = self.official_fan_calculator(
+                        tuple(pack), tuple(hand), _tile_to_name(win_tile),
+                        int(context.get("flower_count", 0)),
+                        bool(context.get("self_drawn", False)),
+                        bool(context.get("fourth_tile", False)),
+                        bool(context.get("about_kong", False)),
+                        bool(context.get("wall_last", False)),
+                        int(context.get("seat_wind", 0)),
+                        int(context.get("prevalent_wind", 0)),
+                        verbose=False,
+                    )
+                    totals.append(sum(item[0] * item[1] for item in result))
+                return min(totals)
             except Exception:
                 # Keep local simulation usable if a third-party package exposes
                 # a different signature; official golden tests should catch it.
@@ -98,6 +106,8 @@ class RulesBackend(object):
         return 8 if self.is_complete_hand(counts, melds) else 0
 
     def can_hu(self, counts, melds=(), win_tile=-1, context=None, min_fan=8):
+        if self.has_official:
+            return self.strict_can_hu(counts, melds, win_tile, context, min_fan)
         return self.fan(counts, melds, win_tile, context) >= min_fan
 
     def strict_can_hu(self, counts, melds=(), win_tile=-1, context=None, min_fan=8):
@@ -110,24 +120,21 @@ class RulesBackend(object):
             work[win_tile] -= 1
             for tile, count in enumerate(work):
                 hand.extend([_tile_to_name(tile)] * count)
-            pack = []
-            for meld in melds:
-                kind = meld.kind.name
-                representative = meld.tiles[1] if kind == "CHI" else meld.tiles[0]
-                offer = (context.get("player_id", 0) - meld.from_player) % 4
-                pack.append((kind, _tile_to_name(representative), offer))
-            result = self.official_fan_calculator(
-                tuple(pack), tuple(hand), _tile_to_name(win_tile),
-                int(context.get("flower_count", 0)),
-                bool(context.get("self_drawn", False)),
-                bool(context.get("fourth_tile", False)),
-                bool(context.get("about_kong", False)),
-                bool(context.get("wall_last", False)),
-                int(context.get("seat_wind", 0)),
-                int(context.get("prevalent_wind", 0)),
-                verbose=False,
-            )
-            return sum(item[0] for item in result) >= min_fan
+            totals = []
+            for pack in _pack_variants(melds, context.get("player_id", 0)):
+                result = self.official_fan_calculator(
+                    tuple(pack), tuple(hand), _tile_to_name(win_tile),
+                    int(context.get("flower_count", 0)),
+                    bool(context.get("self_drawn", False)),
+                    bool(context.get("fourth_tile", False)),
+                    bool(context.get("about_kong", False)),
+                    bool(context.get("wall_last", False)),
+                    int(context.get("seat_wind", 0)),
+                    int(context.get("prevalent_wind", 0)),
+                    verbose=False,
+                )
+                totals.append(sum(item[0] * item[1] for item in result))
+            return bool(totals) and min(totals) >= min_fan
         except Exception:
             return False
 

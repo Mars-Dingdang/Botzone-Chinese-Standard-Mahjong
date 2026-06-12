@@ -27,6 +27,13 @@ DEFAULT_WEIGHTS = {
 def _unpack(batch, device):
     if len(batch) != 9:
         raise ValueError("Feature V2 tensor cache required; rebuild with build_tensor_cache.py")
+    batch = list(batch)
+    state_tokens = int(batch[1].sum(1).max().item())
+    max_actions = int(batch[4].sum(1).max().item())
+    batch[0] = batch[0][:, :state_tokens]
+    batch[1] = batch[1][:, :state_tokens]
+    for index in (2, 3, 4):
+        batch[index] = batch[index][:, :max_actions]
     values = [value.to(device) for value in batch]
     values[0] = values[0].float()
     values[2] = values[2].float()
@@ -185,6 +192,12 @@ def main():
     rank = int(os.environ.get("RANK", "0"))
     local = int(os.environ.get("LOCAL_RANK", "0"))
     world = int(os.environ.get("WORLD_SIZE", "1"))
+    if rank == 0:
+        print(json.dumps({
+            "event": "training_config", "batch_size_per_rank": args.batch_size,
+            "effective_batch_size": args.batch_size * world,
+            "world_size": world, "data": args.data, "belief_mode": args.belief_mode,
+        }, sort_keys=True), flush=True)
     if distributed:
         torch.distributed.init_process_group("nccl")
         torch.cuda.set_device(local)
@@ -203,7 +216,8 @@ def main():
         best = float(metadata.get("best_metric", -1))
         stale = int(metadata.get("stale_epochs", 0))
     if distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local])
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[local], find_unused_parameters=True)
     scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
     for epoch_index in range(start, args.epochs):
         _, rank_steps = tensor_shard_plan(args.data, "train", world, args.batch_size)
@@ -231,6 +245,8 @@ def main():
                 "label_smoothing": args.label_smoothing, "weighting": args.weighting,
                 "aux_coef": args.aux_coef,
                 "belief_mode": args.belief_mode,
+                "batch_size_per_rank": args.batch_size,
+                "effective_batch_size": args.batch_size * world,
                 "seed": args.seed,
             }
             saved = model.module if distributed else model

@@ -147,7 +147,8 @@ def main():
             pool.history.append(historical.eval())
     if distributed:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[local_rank], broadcast_buffers=False)
+            model, device_ids=[local_rank], broadcast_buffers=False,
+            find_unused_parameters=True)
     coefficients = {
         "efficiency": args.efficiency_coef, "fan_feasibility": args.fan_feasibility_coef,
         "deal_in_risk": args.deal_in_risk_coef, "draw_tenpai": args.draw_tenpai_coef,

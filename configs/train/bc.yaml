@@ -1,5 +1,5 @@
 epochs: 15
-batch_size: 4096
+batch_size: 1536
 learning_rate: 0.0003
 patience: 3
 feature_version: 2

@@ -12,7 +12,15 @@ def hu_context(state, self_drawn):
     tile = state.drawn_tile if self_drawn else (
         state.last_discard[1] if state.last_discard else -1)
     visible = sum(river.count(tile) for river in state.discards) if tile >= 0 else 0
-    visible += sum(meld.tiles.count(tile) for melds in state.melds for meld in melds) if tile >= 0 else 0
+    if tile >= 0:
+        for owner, melds in enumerate(state.melds):
+            for meld in melds:
+                visible += meld.tiles.count(tile)
+                # ProtocolState retains claimed discards in river history. Remove
+                # one possible overlap per exposed meld; under-counting here is
+                # safer than incorrectly declaring an otherwise sub-eight-fan HU.
+                if meld.from_player != owner and tile in meld.tiles:
+                    visible -= 1
     return {
         "player_id": state.player_id, "seat_wind": state.player_id,
         "prevalent_wind": state.prevalent_wind, "self_drawn": self_drawn,

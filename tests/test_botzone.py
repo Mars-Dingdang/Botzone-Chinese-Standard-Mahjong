@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 from unittest import mock
 
-from mahjong_agent.botzone.legality import (response_to_action, sanitize_action,
+from mahjong_agent.botzone.legality import (hu_context, response_to_action, sanitize_action,
                                             strict_legal_actions, validate_action)
 from mahjong_agent.botzone.protocol import ProtocolState, action_to_text
 from mahjong_agent.engine.actions import Action, ActionType, Meld
@@ -158,6 +158,19 @@ class BotzoneTest(unittest.TestCase):
                 [sys.executable, archive],
                 input=json.dumps({"requests": ["0 1 0"], "responses": []}).encode("utf-8"))
             self.assertEqual(json.loads(output.decode("utf-8"))["response"], "PASS")
+
+
+    def test_claimed_discards_do_not_create_false_fourth_tile(self):
+        state = ProtocolState()
+        state.player_id = 0
+        state.phase = "claim"
+        state.last_discard = (3, 2)
+        state.discards[1] = [2]
+        state.discards[2] = [2]
+        state.discards[3] = [2]
+        state.melds[1] = [Meld(ActionType.CHI, (0, 1, 2), 0)]
+        state.melds[2] = [Meld(ActionType.CHI, (1, 2, 3), 1)]
+        self.assertFalse(hu_context(state, False)["fourth_tile"])
 
 
 if __name__ == "__main__":

@@ -68,17 +68,28 @@ exec >> "$run_dir/logs/pipeline.log" 2>&1
 
 DATA_DIR="${DATA_DIR:-artifacts/official_bc_full_v3}"
 TENSOR_DIR="${TENSOR_DIR:-artifacts/official_bc_full_v3_tensors}"
+BC_CONFIG="${BC_CONFIG:-configs/train/bc.yaml}"
+BC_BATCH_SIZE="${BC_BATCH_SIZE:-$(python -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get("batch_size", 256))' "$BC_CONFIG")}"
+if [[ "$DATA_DIR" == "artifacts/official_bc_full_v4" ]]; then
+  echo "replacing obsolete DATA_DIR=$DATA_DIR with artifacts/official_bc_full_v3"
+  DATA_DIR="artifacts/official_bc_full_v3"
+fi
+if [[ "$TENSOR_DIR" == "artifacts/official_bc_full_v4_tensors" ]]; then
+  echo "replacing obsolete TENSOR_DIR=$TENSOR_DIR with artifacts/official_bc_full_v3_tensors"
+  TENSOR_DIR="artifacts/official_bc_full_v3_tensors"
+fi
 GPUS="${GPUS:-2}"
 EVAL_GAMES="${EVAL_GAMES:-400}"
 EVAL_SEED="${EVAL_SEED:-2026}"
 WALL_MANIFEST="$run_dir/evaluations/walls.json"
 
 if [[ ! -f "$run_dir/run_manifest.json" ]]; then
-python - "$run_dir/run_manifest.json" "$from_stage" "$EVAL_SEED" <<'PY'
+python - "$run_dir/run_manifest.json" "$from_stage" "$EVAL_SEED" "$DATA_DIR" "$TENSOR_DIR" <<'PY'
 import json, os, sys, time
 with open(sys.argv[1], "w") as handle:
     json.dump({"created_at": time.time(), "from_stage": sys.argv[2],
-               "eval_seed": int(sys.argv[3]), "environment": {
+               "eval_seed": int(sys.argv[3]), "data_dir": sys.argv[4],
+               "tensor_dir": sys.argv[5], "environment": {
                    key: value for key, value in os.environ.items()
                    if key.startswith(("BC_", "PPO_", "EVAL_", "PREPROCESS_", "CACHE_"))
                }}, handle, indent=2, sort_keys=True)
@@ -111,7 +122,7 @@ if run_stage bc; then
   torchrun --standalone --nproc_per_node="$GPUS" scripts/train_bc.py \
     --data "$TENSOR_DIR" --output "$run_dir/bc_model.pt" \
     --epochs "${BC_EPOCHS:-15}" --patience "${BC_PATIENCE:-3}" \
-    --batch-size "${BC_BATCH_SIZE:-4096}" --metrics-jsonl "$run_dir/logs/bc_metrics.jsonl" \
+    --batch-size "$BC_BATCH_SIZE" --metrics-jsonl "$run_dir/logs/bc_metrics.jsonl" \
     --seed "$EVAL_SEED" \
     "${bc_resume[@]}" 2>&1 | tee "$run_dir/logs/bc.log"
   python scripts/select_best_bc.py --checkpoint-glob "$run_dir/bc_model.epoch-*.pt" \

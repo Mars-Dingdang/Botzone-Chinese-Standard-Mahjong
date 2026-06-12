@@ -1,25 +1,22 @@
 # Training Memory
 
-Updated: 2026-06-09 (Asia/Shanghai), optimization implementation pass
+Updated: 2026-06-12 (Asia/Shanghai), active full-v3 training pass
 
 ## Current Status
 
-- Active v2 pipeline PID: `202706`
-- Active v2 run: `artifacts/runs/20260609-162316`
-- Current v2 stage: full-action preprocessing to `artifacts/official_bc_full_v2`
-- Monitor: `tail -f artifacts/training-v2-launch.log` and `ps -p "$(cat artifacts/training-v2.pid)" -o pid,etime,stat,cmd`
-- Legacy v1 pipeline PID `161313` has completed
-- Active run: `artifacts/runs/20260609-153548`
-- Legacy v1 stage completed 100 PPO updates; final duplicate result was model `-5.4` versus heuristic `1.8`
-- Runtime: `/root/LLM_HW2/.venv`, PyTorch `2.6.0+cu124`, `PyMahjongGB==1.3.0`
-- Hardware: 2 x RTX 4090 24 GB; container CPU quota is 8 cores despite exposing 112 CPUs
+- Active full-v3 run: `artifacts/runs/20260611-210636`
+- Current stage: BC training in detached screen `mahjong-20260611-210636`
+- Launch command: `bash scripts/run_training_pipeline.sh start --from bc --run-dir artifacts/runs/20260611-210636`
+- Runtime: PyTorch environment with 2 x RTX 4090 24 GB
+- Effective BC configuration: batch `1536` per GPU, global batch `3072`, 15 epochs, patience 3
+- Steady-state BC memory is about 19.5 GiB per GPU with about 95% sampled utilization
 
 Monitor with:
 
 ```bash
-tail -f artifacts/training-launch.log
+bash scripts/run_training_pipeline.sh status --run-dir artifacts/runs/20260611-210636
+tail -f artifacts/runs/20260611-210636/logs/pipeline.log
 watch -n 1 nvidia-smi
-ps -p "$(cat artifacts/training.pid)" -o pid,etime,stat,cmd
 ```
 
 ## Data Pipeline
@@ -64,7 +61,7 @@ metric = top-1 candidate-action accuracy
 
 - AdamW, learning rate `3e-4`, AMP FP16, gradient clipping `1.0`
 - DDP uses balanced tensor shards and equal steps per rank
-- Empirical batch: `4096` per GPU
+- Validated long-run batch on 2 x RTX 4090: `1536` per GPU (`3072` global)
 
 PPO v2 implementation:
 
@@ -110,17 +107,20 @@ Checkpoints:
 
 - Replaced single-core JSONL preprocessing with multi-process compressed Parquet: about 5x faster and over 20x smaller at matched scale.
 - Added tensor cache to remove per-row Parquet `to_pylist` and Python collation from every epoch.
-- Equal-global-sample benchmark: two GPUs, batch 4096 each, about 8 seconds; one GPU, batch 8192, about 11 seconds.
+- The pipeline previously ignored `configs/train/bc.yaml` and hard-coded batch 4096 per GPU, causing 24 GiB OOM even after the YAML was changed. It now resolves YAML first and permits `BC_BATCH_SIZE` override.
+- Batch-local padding trimming reduces the state sequence from fixed 256 tokens to the current batch maximum and trims padded action candidates before GPU transfer.
+- Batch 2048 per GPU passed smoke tests but reached about 23.2 GiB, so the long run uses safer batch 1536 at about 19.5 GiB.
+- BC and PPO DDP use unused-parameter detection because aux-mode leaves actor-only/value-only parameters outside some losses.
 - Fixed DDP NCCL timeout caused by unequal rank batch counts. Shards are greedily balanced and ranks are capped to equal steps.
 - Fixed PPO rollout DDP forward hang by disabling per-forward buffer broadcasts; two-GPU GAE/KL smoke test passed.
 - A 200-step two-GPU BC regression test and all 10 unit tests passed.
 
 ## Known Limitations and Next Work
 
-- Future pipelines default to `artifacts/official_bc_full_v2` and `artifacts/official_bc_full_v2_tensors`; full-scale v2 preprocessing has not run yet.
+- The active pipeline uses `artifacts/official_bc_full_v3` and `artifacts/official_bc_full_v3_tensors`; do not redirect it to obsolete `official_bc_full_v4` paths.
 - Environment now collects all three claim responses, resolves priority, passes official fan context and scores by real fan count.
 - Robbing a kong and remaining official-rule edge cases still need differential tests against the bundled official environment.
 - PPO rollout is CPU/environment limited and GPU utilization is expected to be low.
 - Auxiliary head has no supervised targets yet.
 - Belief teacher-student, fan-template prediction, persistent opponent pool, actor-learner/V-trace and search remain future work.
-- Final PPO checkpoint still needs duplicate evaluation against BC, heuristic and historical PPO checkpoints.
+- The active full-v3 pipeline still needs to finish BC selection, PPO training, and duplicate model selection.
