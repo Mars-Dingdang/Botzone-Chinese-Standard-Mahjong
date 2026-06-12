@@ -35,6 +35,10 @@ class ModelTest(unittest.TestCase):
             torch.ones(2, 16, dtype=torch.bool),
             torch.ones(2, 5, 4, dtype=torch.bool))
         self.assertEqual(tuple(output["belief_logits"].shape), (2, 3, 34, 5))
+        self.assertEqual(tuple(output["family_scores"].shape), (2, 7))
+        self.assertEqual(tuple(output["action_outcome"].shape), (2, 5, 4))
+        self.assertEqual(tuple(output["action_fan_logits"].shape), (2, 5, 5))
+        self.assertTrue(bool((model.auxiliary_logit_gate == 0).all()))
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "model.pt")
             save_checkpoint(path, model, metadata={"belief_mode": "aux"})

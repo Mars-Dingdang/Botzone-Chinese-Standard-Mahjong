@@ -8,16 +8,19 @@ from mahjong_agent.features.token_encoder import TOKEN_SIZE
 
 class TokenTransformer(nn.Module):
     feature_version = 2
+    architecture_version = 3
 
     def __init__(self, token_size=TOKEN_SIZE, d_model=192, layers=4, heads=6,
-                 dropout=0.1, belief_mode="aux"):
+                 dropout=0.1, belief_mode="aux", auxiliary_logit_fusion=True):
         super(TokenTransformer, self).__init__()
         self.token_size = token_size
         self.d_model = d_model
         self.belief_mode = belief_mode
+        self.auxiliary_logit_fusion = auxiliary_logit_fusion
         self.model_config = {
             "token_size": token_size, "d_model": d_model, "layers": layers,
             "heads": heads, "dropout": dropout, "belief_mode": belief_mode,
+            "auxiliary_logit_fusion": auxiliary_logit_fusion,
         }
         self.state_encoder = nn.Linear(token_size, d_model)
         self.action_encoder = nn.Linear(token_size, d_model)
@@ -29,8 +32,14 @@ class TokenTransformer(nn.Module):
             d_model=d_model, nhead=heads, dim_feedforward=d_model * 4,
             dropout=dropout)
         self.transformer = nn.TransformerEncoder(layer, layers)
-        self.policy_head = nn.Sequential(
-            nn.Linear(d_model * 2, d_model), nn.ReLU(), nn.Linear(d_model, 1))
+        interaction_size = d_model * 3
+        self.family_head = nn.Sequential(
+            nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, 7))
+        self.tactical_head = nn.Sequential(
+            nn.Linear(interaction_size, d_model), nn.ReLU(), nn.Linear(d_model, 1))
+        self.action_outcome_head = nn.Linear(interaction_size, 4)
+        self.action_fan_head = nn.Linear(interaction_size, 5)
+        self.auxiliary_logit_gate = nn.Parameter(torch.zeros(5))
         self.value_head = nn.Sequential(
             nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, 1))
         self.outcome_head = nn.Linear(d_model, 4)  # win, deal-in, score, 8-fan
@@ -69,7 +78,21 @@ class TokenTransformer(nn.Module):
             weight = action_token_mask.float().unsqueeze(-1)
             action_state = (action_encoded * weight).sum(2) / weight.sum(2).clamp_min(1.0)
         expanded = state.unsqueeze(1).expand_as(action_state)
-        logits = self.policy_head(torch.cat((expanded, action_state), -1)).squeeze(-1)
+        interaction = torch.cat((expanded, action_state, expanded * action_state), -1)
+        action_kinds = actions[:, :, 0, 3].long().sub(1).clamp(0, 6)
+        family_scores = self.family_head(state)
+        family_logits = family_scores.gather(1, action_kinds)
+        tactical_logits = self.tactical_head(interaction).squeeze(-1)
+        action_outcome = self.action_outcome_head(interaction)
+        action_fan_logits = self.action_fan_head(interaction)
+        logits = family_logits + tactical_logits
+        if self.auxiliary_logit_fusion:
+            fan_values = torch.arange(5, device=actions.device, dtype=action_fan_logits.dtype)
+            expected_fan = (action_fan_logits.softmax(-1) * fan_values).sum(-1)
+            auxiliary = torch.stack((
+                action_outcome[..., 0], -action_outcome[..., 1],
+                action_outcome[..., 2], action_outcome[..., 3], expected_fan), -1)
+            logits = logits + (auxiliary * self.auxiliary_logit_gate).sum(-1)
         if action_mask is not None:
             logits = logits.masked_fill(action_mask == 0, -1e4)
         outcome = self.outcome_head(state)
@@ -77,4 +100,7 @@ class TokenTransformer(nn.Module):
             "logits": logits, "value": self.value_head(state).squeeze(-1),
             "aux": outcome, "outcome": outcome, "fan_logits": self.fan_head(state),
             "belief_logits": self.belief_head(state).view(-1, 3, 34, 5),
+            "family_scores": family_scores, "family_logits": family_logits,
+            "tactical_logits": tactical_logits, "action_outcome": action_outcome,
+            "action_fan_logits": action_fan_logits,
         }

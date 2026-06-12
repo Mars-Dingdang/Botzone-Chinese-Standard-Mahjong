@@ -17,7 +17,9 @@ from mahjong_agent.features import encode_action_v2, encode_observation_v2
 from mahjong_agent.models import create_model
 from mahjong_agent.policies import HeuristicPolicy, RandomPolicy
 from mahjong_agent.policies.model import ModelPolicy
-from mahjong_agent.training.checkpoint import load_checkpoint, save_checkpoint
+from mahjong_agent.training.checkpoint import (load_checkpoint,
+                                               load_model_from_checkpoint,
+                                               save_checkpoint)
 from mahjong_agent.training.dataset import collate_records
 from mahjong_agent.training.ppo import generalized_advantage_estimate, ppo_update
 from mahjong_agent.training.reward import public_potential, shaped_rewards
@@ -56,7 +58,8 @@ def padded_record(record, result, learner_seat, max_actions=64):
                        int(result["loser"] == learner_seat),
                        result["scores"][learner_seat] / 64.0,
                        int(result["winner"] == learner_seat and fan >= 8)],
-        "fan_target": min(4, fan // 8), "belief_targets": belief,
+        "fan_target": min(4, fan // 8) if result["winner"] == learner_seat else 0,
+        "belief_targets": belief,
     }
 
 
@@ -70,8 +73,12 @@ class OpponentPool(object):
         self.history_capacity = history_capacity
 
     def add_history(self, model):
-        snapshot = create_model(2)
-        snapshot.load_state_dict(copy.deepcopy(model.state_dict()))
+        snapshot = create_model(
+            model.feature_version, **dict(getattr(model, "model_config", {})))
+        snapshot.load_state_dict({
+            name: value.detach().cpu().clone()
+            for name, value in model.state_dict().items()
+        })
         snapshot.eval()
         self.history.append(snapshot)
         self.history = self.history[-self.history_capacity:]
@@ -124,12 +131,10 @@ def main():
         torch.distributed.init_process_group("nccl")
         torch.cuda.set_device(local_rank)
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
-    model = create_model(2)
+    model, _ = load_model_from_checkpoint(args.checkpoint)
     model.belief_mode = args.belief_mode
-    load_checkpoint(args.checkpoint, model)
     model.to(device)
-    reference = create_model(2)
-    load_checkpoint(args.checkpoint, reference)
+    reference, _ = load_model_from_checkpoint(args.checkpoint)
     reference.to(device).eval()
     for parameter in reference.parameters():
         parameter.requires_grad = False
@@ -142,8 +147,7 @@ def main():
     pool = OpponentPool(model, reference, args.seed + rank, args.history_capacity)
     if args.resume:
         for path in sorted(glob.glob(args.output.replace(".pt", ".update-*.pt")))[-args.history_capacity:]:
-            historical = create_model(2)
-            load_checkpoint(path, historical)
+            historical, _ = load_model_from_checkpoint(path)
             pool.history.append(historical.eval())
     if distributed:
         model = torch.nn.parallel.DistributedDataParallel(

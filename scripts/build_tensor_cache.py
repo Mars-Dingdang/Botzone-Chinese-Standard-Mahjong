@@ -61,7 +61,7 @@ def convert(task):
 
 
 def main():
-    p = argparse.ArgumentParser(); p.add_argument("--input-dir", default="artifacts/official_bc"); p.add_argument("--output-dir", default="artifacts/official_bc_tensors"); p.add_argument("--workers", type=int, default=8); p.add_argument("--max-actions", type=int, default=64); a = p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument("--input-dir", default="artifacts/official_bc_v4"); p.add_argument("--output-dir", default="artifacts/official_bc_v4_tensors"); p.add_argument("--workers", type=int, default=8); p.add_argument("--max-actions", type=int, default=64); a = p.parse_args()
     os.makedirs(a.output_dir, exist_ok=True)
     paths = sorted(glob.glob(os.path.join(a.input_dir, "*.parquet")))
     entries = []
@@ -73,8 +73,24 @@ def main():
                                            unit="shard"), 1):
             entries.extend(value)
             if index % 20 == 0: print("converted=%d/%d tensor_shards=%d" % (index, len(paths), len(entries)), flush=True)
-    metadata = {"format": "torch-tensor-cache", "feature_version": 2, "legality_version": 4,
-                "max_actions": a.max_actions, "shards": sorted(entries, key=lambda x: x["path"])}
+    source_metadata = {}
+    source_path = os.path.join(a.input_dir, "metadata.json")
+    if os.path.exists(source_path):
+        with open(source_path) as handle:
+            source_metadata = json.load(handle)
+    family_counts = source_metadata.get("families", {})
+    metadata = {
+        "format": "torch-tensor-cache", "cache_version": 2, "feature_version": 2,
+        "legality_version": 5, "label_version": 2, "max_actions": a.max_actions,
+        "samples": sum(item["samples"] for item in entries),
+        "samples_by_split": {
+            split: sum(item["samples"] for item in entries if item["split"] == split)
+            for split in ("train", "val")
+        },
+        "families": family_counts,
+        "source_version": source_metadata.get("version"),
+        "shards": sorted(entries, key=lambda x: x["path"]),
+    }
     with open(os.path.join(a.output_dir, "tensor_metadata.json"), "w") as f: json.dump(metadata, f, indent=2)
     print("train=%d val=%d" % (sum(x["samples"] for x in entries if x["split"] == "train"), sum(x["samples"] for x in entries if x["split"] == "val")))
 if __name__ == "__main__": main()

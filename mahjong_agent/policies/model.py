@@ -1,5 +1,6 @@
 from mahjong_agent.features import (encode_action, encode_action_v2,
                                     encode_observation, encode_observation_v2)
+from mahjong_agent.engine.actions import ActionType
 
 
 class ModelPolicy(object):
@@ -14,6 +15,9 @@ class ModelPolicy(object):
         self.model.eval()
 
     def act(self, observation, legal_actions):
+        for action in legal_actions:
+            if action.kind == ActionType.HU:
+                return action
         torch = self.torch
         self.model.eval()
         device = next(self.model.parameters()).device

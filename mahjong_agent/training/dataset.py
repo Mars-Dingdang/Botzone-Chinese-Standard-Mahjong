@@ -81,21 +81,29 @@ def iter_records(path, rank=0, world_size=1, split=None):
     return iter_jsonl_shards(path, pattern, rank, world_size)
 
 
-def tensor_shard_plan(path, split, world_size, batch_size):
+def tensor_shard_plan(path, split, world_size, batch_size, seed=0, epoch=0):
+    import random
     with open(os.path.join(path, "tensor_metadata.json")) as handle:
         entries = [item for item in json.load(handle)["shards"] if item["split"] == split]
+    random.Random(seed + epoch).shuffle(entries)
     assignments = [[] for _ in range(world_size)]
     samples = [0] * world_size
     for item in sorted(entries, key=lambda x: x["samples"], reverse=True):
         rank = min(range(world_size), key=lambda value: samples[value])
         assignments[rank].append(item)
         samples[rank] += item["samples"]
+    if world_size > 1:
+        rotation = epoch % world_size
+        assignments = [assignments[(rank + rotation) % world_size]
+                       for rank in range(world_size)]
+        samples = [samples[(rank + rotation) % world_size] for rank in range(world_size)]
     return assignments, [value // batch_size for value in samples]
 
 
-def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps=0):
+def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps=0,
+                        seed=0, epoch=0, shuffle=False):
     import torch
-    assignments, _ = tensor_shard_plan(path, split, world_size, batch_size)
+    assignments, _ = tensor_shard_plan(path, split, world_size, batch_size, seed, epoch)
     yielded = 0
     carry = None
     keys = None
@@ -107,6 +115,11 @@ def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps
                 "masks", "targets", "aux_labels", "fan_targets", "belief_targets")
                 if key in payload)
         current = tuple(payload[key] for key in keys)
+        if shuffle:
+            generator = torch.Generator()
+            generator.manual_seed(seed + epoch * 1000003 + rank * 10007 + yielded)
+            order = torch.randperm(current[0].size(0), generator=generator)
+            current = tuple(value[order] for value in current)
         if carry is not None:
             current = tuple(torch.cat((left, right), dim=0) for left, right in zip(carry, current))
         full = current[0].size(0) // batch_size

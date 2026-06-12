@@ -18,6 +18,16 @@ from mahjong_agent.rules.legality import can_kong
 from scripts.preprocess_official_data import match_chunks
 
 
+def terminal_aux_labels(player, winner, loser, scores, fan):
+    won = player == winner
+    return {
+        "win": int(won), "deal_in": int(player == loser),
+        "score": scores[player] / 64.0,
+        "fan_bucket": min(4, fan // 8) if won else 0,
+        "eight_fan": int(won and fan >= 8),
+    }
+
+
 class FullActionState(object):
     def reset(self):
         self.wind = 0
@@ -29,6 +39,9 @@ class FullActionState(object):
         self.last = None
         self.pending = {}
         self.claim_pending = {}
+        self.about_kong = False
+        self.claim_hu_only = False
+        self.candidate_misses = 0
 
     def observation(self, player, phase):
         return {"player_id": player, "current_player": player, "phase": phase,
@@ -36,8 +49,17 @@ class FullActionState(object):
                 "discards": [list(x) for x in self.discards], "wall_remaining": sum(self.wall),
                 "wall_remaining_by_player": list(self.wall), "events": list(self.events[-128:]),
                 "last_discard": self.last, "prevalent_wind": self.wind,
-                "wall_last": self.wall[(player + 1) % 4] == 0, "about_kong": False,
-                "claim_hu_only": False}
+                "wall_last": self.wall[(player + 1) % 4] == 0, "about_kong": self.about_kong,
+                "claim_hu_only": self.claim_hu_only}
+
+    def _fourth_tile(self, tile, self_drawn):
+        visible = sum(river.count(tile) for river in self.discards)
+        for owner, melds in enumerate(self.melds):
+            for meld in melds:
+                visible += meld.tiles.count(tile)
+                if meld.from_player != owner and tile in meld.tiles:
+                    visible -= 1
+        return visible + int(self_drawn) >= 4
 
     def _record(self, player, phase, actions):
         unique = list(dict((action.key(), action) for action in actions).values())
@@ -73,7 +95,8 @@ class FullActionState(object):
                            if meld.kind == ActionType.PENG and counts[meld.tiles[0]])
         raw = [counts.get(tile, 0) for tile in range(34)]
         context = {"player_id": player, "seat_wind": player, "prevalent_wind": self.wind,
-                   "self_drawn": True, "fourth_tile": False, "about_kong": False,
+                   "self_drawn": True, "fourth_tile": self._fourth_tile(drawn, True),
+                   "about_kong": self.about_kong,
                    "wall_last": wall_last, "flower_count": 0}
         if self._can_hu_fast(raw, self.melds[player]) and default_backend.can_hu(raw, self.melds[player], drawn, context=context):
             actions.append(Action.hu())
@@ -100,19 +123,35 @@ class FullActionState(object):
                             actions.append(Action(ActionType.CHI, tile, seq, discard))
         raw = [counts.get(index, 0) for index in range(34)]; raw[tile] += 1
         context = {"player_id": player, "seat_wind": player, "prevalent_wind": self.wind,
-                   "self_drawn": False, "fourth_tile": False, "about_kong": False,
+                   "self_drawn": False, "fourth_tile": self._fourth_tile(tile, False),
+                   "about_kong": self.about_kong,
                    "wall_last": wall_last, "flower_count": 0}
         if self._can_hu_fast(raw, self.melds[player]) and default_backend.can_hu(raw, self.melds[player], tile, context=context):
             actions.append(Action.hu())
         return actions
 
-    @staticmethod
-    def finalize(record, action, action_family):
+    def _rob_kong_actions(self, player, source, tile):
+        actions = [Action.pass_()]
+        counts = Counter(self.hands[player])
+        raw = [counts.get(index, 0) for index in range(34)]
+        raw[tile] += 1
+        context = {
+            "player_id": player, "seat_wind": player, "prevalent_wind": self.wind,
+            "self_drawn": False, "fourth_tile": False, "about_kong": True,
+            "wall_last": False, "flower_count": 0,
+        }
+        if (self._can_hu_fast(raw, self.melds[player]) and
+                default_backend.can_hu(raw, self.melds[player], tile, context=context)):
+            actions.append(Action.hu())
+        return actions
+
+    def finalize(self, record, action, action_family):
         actions = record["legal"]
         if action.key() not in {item.key() for item in actions}:
             # The archival target is an official executed action. Keep it as a
             # legal target even when conservative generation omits it.
             actions.append(action)
+            self.candidate_misses += 1
         if len(actions) <= 1:
             return None
         return {"observation": record["observation"], "actions_raw": [serialize_action(x) for x in actions],
@@ -131,6 +170,9 @@ class FullActionState(object):
                 rows.append(self.finalize(self.pending.pop(other), Action.pass_(), "PASS"))
             tile = name_to_tile(parts[3]); self.wall[player] = max(0, self.wall[player] - 1)
             self.hands[player].append(tile); self.hands[player].sort(); self.events.append(("DRAW", player))
+            self.about_kong = bool(self.events and len(self.events) > 1 and
+                                   self.events[-2][0] in ("GANG", "ANGANG", "BUGANG"))
+            self.claim_hu_only = False
             self.pending[player] = self._record(player, "discard", self._draw_actions(player, tile)); return rows
         if kind == "Play":
             tile = name_to_tile(parts[3])
@@ -142,6 +184,8 @@ class FullActionState(object):
                 rows.append(self.finalize(self.pending.pop(player), Action.play(tile), "PLAY"))
             self.hands[player].remove(tile); self.discards[player].append(tile); self.last = (player, tile)
             self.events.append(("PLAY", player, tile))
+            self.about_kong = False
+            self.claim_hu_only = False
             for other in range(4):
                 if other != player: self.pending[other] = self._record(other, "claim", self._claim_actions(other))
             return rows
@@ -176,11 +220,25 @@ class FullActionState(object):
             if kind == "Gang":
                 for _ in range(3): self.hands[player].remove(tile)
                 self.melds[player].append(Meld(ActionType.GANG, (tile,) * 4, self.last[0]))
+                self.about_kong = True
             elif kind == "AnGang":
                 for _ in range(4): self.hands[player].remove(tile)
                 self.melds[player].append(Meld(ActionType.GANG, (tile,) * 4, player))
+                self.about_kong = True
             elif kind == "BuGang":
                 self.hands[player].remove(tile)
+                for index, meld in enumerate(self.melds[player]):
+                    if meld.kind == ActionType.PENG and meld.tiles[0] == tile:
+                        self.melds[player][index] = Meld(
+                            ActionType.GANG, (tile,) * 4, meld.from_player)
+                        break
+                self.last = (player, tile)
+                self.about_kong = True
+                self.claim_hu_only = True
+                for other in range(4):
+                    if other != player:
+                        self.pending[other] = self._record(
+                            other, "claim", self._rob_kong_actions(other, player, tile))
             self.events.append((kind.upper(), player, tile)); return rows
         return rows
 
@@ -190,6 +248,7 @@ def process_chunk(task):
     import pyarrow as pa
     import pyarrow.parquet as pq
     state = FullActionState(); rows = []; failures = 0; families = Counter()
+    candidate_misses = 0
     for match_id, lines in matches:
         state.reset(); split = "val" if match_id % 20 == 0 else "train"; match_rows = []
         scores = [0, 0, 0, 0]; fan = 0; winner = loser = -1
@@ -213,34 +272,38 @@ def process_chunk(task):
                     key=lambda player: scores[player])
             player = row.pop("player")
             row["split"] = split
-            row["aux_labels"] = {
-                "win": int(player == winner), "deal_in": int(player == loser),
-                "score": scores[player] / 64.0, "fan_bucket": min(4, fan // 8),
-                "eight_fan": int(player == winner and fan >= 8),
-            }
+            row["aux_labels"] = terminal_aux_labels(
+                player, winner, loser, scores, fan)
         rows.extend(match_rows)
+        candidate_misses += state.candidate_misses
     if rows: pq.write_table(pa.Table.from_pylist(rows), os.path.join(output_dir, "part-%05d.parquet" % chunk_id), compression=compression)
-    return len(matches), len(rows), failures, dict(families)
+    return len(matches), len(rows), failures, candidate_misses, dict(families)
 
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--input", default="Chinese-Standard-Mahjong/SL/data/data.txt")
-    parser.add_argument("--output-dir", default="artifacts/official_bc_full_v3"); parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
+    parser.add_argument("--output-dir", default="artifacts/official_bc_v4"); parser.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     parser.add_argument("--chunk-matches", type=int, default=500); parser.add_argument("--max-matches", type=int, default=0)
-    args = parser.parse_args(); os.makedirs(args.output_dir, exist_ok=True); started = time.time(); totals = [0, 0, 0]; families = Counter()
+    args = parser.parse_args(); os.makedirs(args.output_dir, exist_ok=True); started = time.time(); totals = [0, 0, 0, 0]; families = Counter()
     tasks = ((i, chunk, args.output_dir, "zstd") for i, chunk in enumerate(match_chunks(args.input, args.chunk_matches, args.max_matches)))
     with mp.get_context("fork").Pool(args.workers, maxtasksperchild=8) as pool:
         from tqdm import tqdm
-        for done, (matches, samples, failures, counts) in enumerate(
+        for done, (matches, samples, failures, candidate_misses, counts) in enumerate(
                 tqdm(pool.imap_unordered(process_chunk, tasks), desc="preprocess",
                      unit="chunk"), 1):
-            totals = [totals[0] + matches, totals[1] + samples, totals[2] + failures]; families.update(counts)
+            totals = [totals[0] + matches, totals[1] + samples,
+                      totals[2] + failures, totals[3] + candidate_misses]
+            families.update(counts)
             if done % 4 == 0:
                 elapsed = time.time() - started
-                print("chunks=%d matches=%d samples=%d failures=%d rate=%.1f matches/s" % (
-                    done, totals[0], totals[1], totals[2], totals[0] / max(elapsed, 1e-6)
+                print("chunks=%d matches=%d samples=%d failures=%d candidate_misses=%d rate=%.1f matches/s" % (
+                    done, totals[0], totals[1], totals[2], totals[3],
+                    totals[0] / max(elapsed, 1e-6)
                 ), flush=True)
-    metadata = {"version": 4, "feature_version": 2, "matches": totals[0], "samples": totals[1], "failures": totals[2], "families": dict(families), "seconds": time.time() - started}
+    metadata = {"version": 4, "feature_version": 2, "label_version": 2,
+                "matches": totals[0], "samples": totals[1], "failures": totals[2],
+                "candidate_misses": totals[3], "families": dict(families),
+                "seconds": time.time() - started}
     with open(os.path.join(args.output_dir, "metadata.json"), "w") as handle: json.dump(metadata, handle, indent=2, sort_keys=True)
     print(json.dumps(metadata, sort_keys=True))
 

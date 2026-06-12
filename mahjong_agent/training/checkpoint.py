@@ -29,6 +29,7 @@ def save_checkpoint(path, model, optimizer=None, metadata=None, scheduler=None):
     payload["metadata"].update({
         "created_at": time.time(), "commit": _commit(),
         "feature_version": int(getattr(model, "feature_version", 1)),
+        "architecture_version": int(getattr(model, "architecture_version", 1)),
         "model_class": model.__class__.__name__,
         "model_config": dict(getattr(model, "model_config", {})),
     })
@@ -53,6 +54,12 @@ def load_checkpoint(path, model, optimizer=None, map_location="cpu", scheduler=N
     if not allow_version_mismatch and expected != actual:
         raise ValueError("checkpoint feature_version=%d cannot load into model version=%d"
                          % (actual, expected))
+    expected_architecture = int(getattr(model, "architecture_version", 1))
+    actual_architecture = int(metadata.get("architecture_version", 1))
+    if not allow_version_mismatch and expected_architecture != actual_architecture:
+        raise ValueError(
+            "checkpoint architecture_version=%d cannot load into model version=%d"
+            % (actual_architecture, expected_architecture))
     model.load_state_dict(payload["model"])
     if optimizer is not None and payload.get("optimizer"):
         optimizer.load_state_dict(payload["optimizer"])

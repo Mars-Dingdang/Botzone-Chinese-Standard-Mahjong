@@ -66,17 +66,19 @@ mkdir -p "$run_dir/logs" "$run_dir/evaluations" "$run_dir/configs"
 printf '%s\n' "$run_dir" > artifacts/latest_run.txt
 exec >> "$run_dir/logs/pipeline.log" 2>&1
 
-DATA_DIR="${DATA_DIR:-artifacts/official_bc_full_v3}"
-TENSOR_DIR="${TENSOR_DIR:-artifacts/official_bc_full_v3_tensors}"
+DATA_DIR="${DATA_DIR:-artifacts/official_bc_v4}"
+TENSOR_DIR="${TENSOR_DIR:-artifacts/official_bc_v4_tensors}"
 BC_CONFIG="${BC_CONFIG:-configs/train/bc.yaml}"
 BC_BATCH_SIZE="${BC_BATCH_SIZE:-$(python -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get("batch_size", 256))' "$BC_CONFIG")}"
-if [[ "$DATA_DIR" == "artifacts/official_bc_full_v4" ]]; then
-  echo "replacing obsolete DATA_DIR=$DATA_DIR with artifacts/official_bc_full_v3"
-  DATA_DIR="artifacts/official_bc_full_v3"
+BC_EPOCHS="${BC_EPOCHS:-$(python -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get("epochs", 50))' "$BC_CONFIG")}"
+BC_PATIENCE="${BC_PATIENCE:-$(python -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1])).get("patience", 8))' "$BC_CONFIG")}"
+if [[ "$DATA_DIR" == "artifacts/official_bc_full_v3" || "$DATA_DIR" == "artifacts/official_bc_full_v4" || "$DATA_DIR" == "artifacts/official_bc_full_v5" ]]; then
+  echo "replacing obsolete DATA_DIR=$DATA_DIR with artifacts/official_bc_v4"
+  DATA_DIR="artifacts/official_bc_v4"
 fi
-if [[ "$TENSOR_DIR" == "artifacts/official_bc_full_v4_tensors" ]]; then
-  echo "replacing obsolete TENSOR_DIR=$TENSOR_DIR with artifacts/official_bc_full_v3_tensors"
-  TENSOR_DIR="artifacts/official_bc_full_v3_tensors"
+if [[ "$TENSOR_DIR" == "artifacts/official_bc_full_v3_tensors" || "$TENSOR_DIR" == "artifacts/official_bc_full_v4_tensors" || "$TENSOR_DIR" == "artifacts/official_bc_full_v5_tensors" ]]; then
+  echo "replacing obsolete TENSOR_DIR=$TENSOR_DIR with artifacts/official_bc_v4_tensors"
+  TENSOR_DIR="artifacts/official_bc_v4_tensors"
 fi
 GPUS="${GPUS:-2}"
 EVAL_GAMES="${EVAL_GAMES:-400}"
@@ -95,7 +97,7 @@ with open(sys.argv[1], "w") as handle:
                }}, handle, indent=2, sort_keys=True)
 PY
 fi
-cp configs/train/bc.yaml configs/train/ppo.yaml configs/eval/default.yaml "$run_dir/configs/" 2>/dev/null || true
+cp configs/train/bc.yaml configs/train/ppo.yaml configs/model/base.yaml configs/eval/default.yaml "$run_dir/configs/" 2>/dev/null || true
 
 stage_index() { case "$1" in data) echo 0;; bc) echo 1;; rl) echo 2;; eval) echo 3;; *) return 1;; esac; }
 start_index="$(stage_index "$from_stage")"
@@ -103,12 +105,12 @@ run_stage() { [[ "$start_index" -le "$(stage_index "$1")" ]]; }
 
 if run_stage data; then
   echo data > "$run_dir/stage.txt"
-  if [[ ! -f "$DATA_DIR/metadata.json" ]] || ! grep -q '"feature_version": 2' "$DATA_DIR/metadata.json"; then
+  if [[ ! -f "$DATA_DIR/metadata.json" ]] || ! grep -q '"version": 4' "$DATA_DIR/metadata.json"; then
     python -u scripts/preprocess_official_full_actions.py \
       --output-dir "$DATA_DIR" --workers "${PREPROCESS_WORKERS:-8}" \
       2>&1 | tee "$run_dir/logs/preprocess.log"
   fi
-  if [[ ! -f "$TENSOR_DIR/tensor_metadata.json" ]] || ! grep -q '"feature_version": 2' "$TENSOR_DIR/tensor_metadata.json"; then
+  if [[ ! -f "$TENSOR_DIR/tensor_metadata.json" ]] || ! grep -q '"cache_version": 2' "$TENSOR_DIR/tensor_metadata.json"; then
     python -u scripts/build_tensor_cache.py --input-dir "$DATA_DIR" \
       --output-dir "$TENSOR_DIR" --workers "${CACHE_WORKERS:-8}" --max-actions 64 \
       2>&1 | tee "$run_dir/logs/tensor_cache.log"
@@ -121,7 +123,8 @@ if run_stage bc; then
   [[ -f "$run_dir/bc_model.pt" ]] && bc_resume=(--resume "$run_dir/bc_model.pt")
   torchrun --standalone --nproc_per_node="$GPUS" scripts/train_bc.py \
     --data "$TENSOR_DIR" --output "$run_dir/bc_model.pt" \
-    --epochs "${BC_EPOCHS:-15}" --patience "${BC_PATIENCE:-3}" \
+    --config "$BC_CONFIG" --model-config "${MODEL_CONFIG:-configs/model/base.yaml}" \
+    --epochs "$BC_EPOCHS" --patience "$BC_PATIENCE" \
     --batch-size "$BC_BATCH_SIZE" --metrics-jsonl "$run_dir/logs/bc_metrics.jsonl" \
     --seed "$EVAL_SEED" \
     "${bc_resume[@]}" 2>&1 | tee "$run_dir/logs/bc.log"

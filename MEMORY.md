@@ -1,6 +1,6 @@
 # Training Memory
 
-Updated: 2026-06-12 (Asia/Shanghai), active full-v3 training pass
+Updated: 2026-06-12 (Asia/Shanghai), active v4 training pass
 
 ## Current Status
 
@@ -117,10 +117,10 @@ Checkpoints:
 
 ## Known Limitations and Next Work
 
-- The active pipeline uses `artifacts/official_bc_full_v3` and `artifacts/official_bc_full_v3_tensors`; do not redirect it to obsolete `official_bc_full_v4` paths.
+- The active pipeline uses `artifacts/official_bc_v4` and `artifacts/official_bc_v4_tensors`; legacy `official_bc_full_*` paths are migrated by the pipeline.
 - Environment now collects all three claim responses, resolves priority, passes official fan context and scores by real fan count.
 - Robbing a kong and remaining official-rule edge cases still need differential tests against the bundled official environment.
 - PPO rollout is CPU/environment limited and GPU utilization is expected to be low.
 - Auxiliary head has no supervised targets yet.
 - Belief teacher-student, fan-template prediction, persistent opponent pool, actor-learner/V-trace and search remain future work.
-- The active full-v3 pipeline still needs to finish BC selection, PPO training, and duplicate model selection.
+- The active v4 pipeline still needs to finish BC selection, PPO training, and duplicate model selection.
