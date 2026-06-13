@@ -3,11 +3,25 @@ import unittest
 from mahjong_agent.engine.actions import Action
 from mahjong_agent.policies import HeuristicPolicy
 from mahjong_agent.policies.analysis import action_deal_in_risk, direct_deal_in_index
-from mahjong_agent.training.ppo import generalized_advantage_estimate, potential_shaped_rewards, ppo_update
+from mahjong_agent.training.ppo import (generalized_advantage_estimate,
+                                       potential_shaped_rewards, ppo_update,
+                                       rollout_game_indices,
+                                       terminal_only_rewards)
 from mahjong_agent.training.rollout import play_episode, play_episodes_vectorized
 
 
 class PPOTest(unittest.TestCase):
+    def test_global_rollout_budget_is_partitioned_across_ranks(self):
+        first = list(rollout_game_indices(256, rank=0, world_size=2))
+        second = list(rollout_game_indices(256, rank=1, world_size=2))
+        self.assertEqual(len(first), 128)
+        self.assertEqual(len(second), 128)
+        self.assertEqual(sorted(first + second), list(range(256)))
+
+    def test_terminal_only_reward_has_no_intermediate_shaping(self):
+        self.assertEqual(terminal_only_rewards(3, 0.75), [0.0, 0.0, 0.75])
+        self.assertEqual(terminal_only_rewards(0, 0.75), [])
+
     def test_action_risk_is_zero_for_opponent_safe_tile(self):
         observation = {
             "player_id": 0, "hand": [0, 1, 2], "melds": [[], [], [], []],

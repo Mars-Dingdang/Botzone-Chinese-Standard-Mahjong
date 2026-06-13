@@ -120,16 +120,19 @@ python scripts/select_best_bc.py \
 
 PPO 从最佳 BC checkpoint 开始。当前实现使用：
 
-- 终局真实得分 `tanh(score / 64)`；
-- 8+ 番和牌奖励和直接放铳惩罚；
-- 有单步/单局上限的牌效率、真实 8+ 番有效听牌/番型潜力、候选动作放铳风险；
+- 默认仅使用终局真实得分 `tanh(score / 64)`，保留 `shaped` 模式供消融实验；
 - GAE、clipped PPO、value loss 和 entropy bonus；
 - 相对初始 BC 策略的 KL 正则，降低灾难性遗忘；
 - BC `40%`、冻结 PPO 快照 `55%`、启发式 `5%` 的混合对手池；不存在的 PPO
   类别自动回退 BC，不再使用随机对手；
 - 每个 rank 同步推进多个环境，并按模型策略批量推理；
-- 状态级和实际选择动作级的结果/番数辅助监督，默认 `belief_mode=actor`；
+- 状态级和实际选择动作级的结果/番数辅助监督，默认 `belief_mode=aux`，不把
+  belief 预测直接接入 Actor；
 - 原始终局分、Reward 分项、对手采样比例和周期 checkpoint。
+
+默认双卡配置每次 update 全局采集 `256` 局，由 DDP ranks 分片，每张卡最多同步推进
+`128` 个环境。学习率为 `3e-5`，target KL 为 `0.01`，BC-reference KL 系数为
+`0.05`，周期 league 使用 `400` 局。`games_per_update` 必须能被 DDP rank 数整除。
 
 ```bash
 torchrun --standalone --nproc_per_node=2 scripts/train_ppo.py \
@@ -181,6 +184,8 @@ python scripts/select_best_ppo.py \
 bash scripts/run_training_pipeline.sh start --from data
 bash scripts/run_training_pipeline.sh start --from bc --run-dir artifacts/runs/example
 bash scripts/run_training_pipeline.sh start --from rl --run-dir artifacts/runs/example
+bash scripts/run_training_pipeline.sh start --from rl \
+  --bc-run-dir artifacts/runs/20260613-122521
 bash scripts/run_training_pipeline.sh start --from eval --run-dir artifacts/runs/example
 
 bash scripts/run_training_pipeline.sh status
@@ -196,6 +201,11 @@ bash scripts/run_training_pipeline.sh stop
 GPUS=2 BC_EPOCHS=50 PPO_UPDATES=100 EVAL_GAMES=400 \
   bash scripts/run_training_pipeline.sh start --from data
 ```
+
+`--bc-run-dir` 从已有 run 读取 `bc_model.best.pt`，找不到时回退到 `bc_model.pt`，
+并复制到自动创建的新 run，再训练和保存新的 PPO checkpoints。PPO 可通过
+`PPO_GAMES_PER_UPDATE`、`PPO_ROLLOUT_ENVS`、`PPO_LEAGUE_GAMES`、`PPO_LR`、
+`PPO_TARGET_KL`、`PPO_BC_KL_COEF`、`PPO_REWARD_MODE` 和 `PPO_BELIEF_MODE` 覆盖。
 
 运行目录包含 `run_manifest.json`、`configs/`、`logs/`、`evaluations/`、BC/PPO
 checkpoint 和 `final_model.pt`。长任务使用 `tqdm`；非交互日志仍会保留阶段和指标输出。

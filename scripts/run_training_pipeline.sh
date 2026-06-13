@@ -8,7 +8,7 @@ export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/run_training_pipeline.sh start [--from data|bc|rl|eval] [--run-dir PATH]
+  bash scripts/run_training_pipeline.sh start [--from data|bc|rl|eval] [--run-dir PATH] [--bc-run-dir PATH]
   bash scripts/run_training_pipeline.sh resume [--run-dir PATH]
   bash scripts/run_training_pipeline.sh status [--run-dir PATH]
   bash scripts/run_training_pipeline.sh attach [--run-dir PATH]
@@ -19,10 +19,12 @@ EOF
 command="${1:-start}"; shift || true
 from_stage="data"
 run_dir="${RUN_DIR:-}"
+bc_run_dir="${BC_RUN_DIR:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from) from_stage="$2"; shift 2 ;;
     --run-dir) run_dir="$2"; shift 2 ;;
+    --bc-run-dir) bc_run_dir="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
@@ -59,7 +61,9 @@ if [[ "$command" != "_run" ]]; then
   mkdir -p "$run_dir"
   printf '%s\n' "$run_dir" > artifacts/latest_run.txt
   echo "starting screen session=$session run_dir=$run_dir from=$from_stage"
-  exec screen -dmS "$session" bash "$0" _run --from "$from_stage" --run-dir "$run_dir"
+  launch=(bash "$0" _run --from "$from_stage" --run-dir "$run_dir")
+  [[ -n "$bc_run_dir" ]] && launch+=(--bc-run-dir "$bc_run_dir")
+  exec screen -dmS "$session" "${launch[@]}"
 fi
 
 mkdir -p "$run_dir/logs" "$run_dir/evaluations" "$run_dir/configs"
@@ -85,13 +89,29 @@ EVAL_GAMES="${EVAL_GAMES:-400}"
 EVAL_SEED="${EVAL_SEED:-2026}"
 WALL_MANIFEST="$run_dir/evaluations/walls.json"
 
+if [[ -n "$bc_run_dir" ]]; then
+  [[ -d "$bc_run_dir" ]] || { echo "BC run directory not found: $bc_run_dir" >&2; exit 1; }
+  bc_source="$bc_run_dir/bc_model.best.pt"
+  [[ -f "$bc_source" ]] || bc_source="$bc_run_dir/bc_model.pt"
+  [[ -f "$bc_source" ]] || {
+    echo "BC checkpoint not found in $bc_run_dir (expected bc_model.best.pt or bc_model.pt)" >&2
+    exit 1
+  }
+  if [[ ! -f "$run_dir/bc_model.best.pt" ]]; then
+    cp "$bc_source" "$run_dir/bc_model.best.pt"
+    [[ -f "$bc_source.json" ]] && cp "$bc_source.json" "$run_dir/bc_model.best.pt.json"
+  fi
+  printf '%s\n' "$bc_run_dir" > "$run_dir/bc_source_run.txt"
+fi
+
 if [[ ! -f "$run_dir/run_manifest.json" ]]; then
-python - "$run_dir/run_manifest.json" "$from_stage" "$EVAL_SEED" "$DATA_DIR" "$TENSOR_DIR" <<'PY'
+python - "$run_dir/run_manifest.json" "$from_stage" "$EVAL_SEED" "$DATA_DIR" "$TENSOR_DIR" "$bc_run_dir" <<'PY'
 import json, os, sys, time
 with open(sys.argv[1], "w") as handle:
     json.dump({"created_at": time.time(), "from_stage": sys.argv[2],
                "eval_seed": int(sys.argv[3]), "data_dir": sys.argv[4],
-               "tensor_dir": sys.argv[5], "environment": {
+               "tensor_dir": sys.argv[5], "bc_source_run": sys.argv[6] or None,
+               "environment": {
                    key: value for key, value in os.environ.items()
                    if key.startswith(("BC_", "PPO_", "EVAL_", "PREPROCESS_", "CACHE_"))
                }}, handle, indent=2, sort_keys=True)
@@ -144,6 +164,15 @@ fi
 if run_stage rl; then
   echo rl > "$run_dir/stage.txt"
   ppo_resume=()
+  ppo_overrides=()
+  [[ -n "${PPO_GAMES_PER_UPDATE:-}" ]] && ppo_overrides+=(--games-per-update "$PPO_GAMES_PER_UPDATE")
+  [[ -n "${PPO_ROLLOUT_ENVS:-}" ]] && ppo_overrides+=(--rollout-envs "$PPO_ROLLOUT_ENVS")
+  [[ -n "${PPO_LEAGUE_GAMES:-}" ]] && ppo_overrides+=(--league-games "$PPO_LEAGUE_GAMES")
+  [[ -n "${PPO_LR:-}" ]] && ppo_overrides+=(--lr "$PPO_LR")
+  [[ -n "${PPO_TARGET_KL:-}" ]] && ppo_overrides+=(--target-kl "$PPO_TARGET_KL")
+  [[ -n "${PPO_BC_KL_COEF:-}" ]] && ppo_overrides+=(--bc-kl-coef "$PPO_BC_KL_COEF")
+  [[ -n "${PPO_REWARD_MODE:-}" ]] && ppo_overrides+=(--reward-mode "$PPO_REWARD_MODE")
+  [[ -n "${PPO_BELIEF_MODE:-}" ]] && ppo_overrides+=(--belief-mode "$PPO_BELIEF_MODE")
   if [[ -f "$run_dir/ppo_model.pt" ]]; then
     ppo_resume=(--resume "$run_dir/ppo_model.pt")
   else
@@ -155,12 +184,17 @@ if run_stage rl; then
       ppo_resume=(--resume "${ppo_checkpoints[$latest_index]}")
     fi
   fi
-  torchrun --standalone --nproc_per_node="$GPUS" scripts/train_ppo.py \
-    --checkpoint "$run_dir/bc_model.best.pt" --output "$run_dir/ppo_model.pt" \
-    --config "${PPO_CONFIG:-configs/train/ppo.yaml}" \
-    --updates "${PPO_UPDATES:-100}" --games-per-update "${PPO_GAMES_PER_UPDATE:-8}" \
-    --save-every "${PPO_SAVE_EVERY:-10}" --metrics-jsonl "$run_dir/logs/ppo_metrics.jsonl" \
-    --seed "$EVAL_SEED" "${ppo_resume[@]}" 2>&1 | tee "$run_dir/logs/ppo.log"
+  ppo_args=(
+    --checkpoint "$run_dir/bc_model.best.pt" --output "$run_dir/ppo_model.pt"
+    --config "${PPO_CONFIG:-configs/train/ppo.yaml}"
+    --updates "${PPO_UPDATES:-100}"
+    --save-every "${PPO_SAVE_EVERY:-10}" --metrics-jsonl "$run_dir/logs/ppo_metrics.jsonl"
+    --seed "$EVAL_SEED"
+  )
+  [[ "${#ppo_overrides[@]}" -gt 0 ]] && ppo_args+=("${ppo_overrides[@]}")
+  [[ "${#ppo_resume[@]}" -gt 0 ]] && ppo_args+=("${ppo_resume[@]}")
+  torchrun --standalone --nproc_per_node="$GPUS" scripts/train_ppo.py "${ppo_args[@]}" \
+    2>&1 | tee "$run_dir/logs/ppo.log"
 fi
 
 echo eval > "$run_dir/stage.txt"

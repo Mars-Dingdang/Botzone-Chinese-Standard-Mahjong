@@ -24,7 +24,8 @@ from mahjong_agent.training.checkpoint import (load_checkpoint,
                                                load_model_from_checkpoint,
                                                save_checkpoint)
 from mahjong_agent.training.dataset import collate_records
-from mahjong_agent.training.ppo import generalized_advantage_estimate, ppo_update
+from mahjong_agent.training.ppo import (generalized_advantage_estimate, ppo_update,
+                                        rollout_game_indices, terminal_only_rewards)
 from mahjong_agent.training.reward import public_potential, shaped_rewards
 from mahjong_agent.training.rollout import play_episodes_vectorized
 
@@ -177,12 +178,14 @@ def main():
     parser.add_argument("--league-games", type=int, default=cfg.get("league_games", 8))
     parser.add_argument("--gamma", type=float, default=.99)
     parser.add_argument("--gae-lambda", type=float, default=.95)
-    parser.add_argument("--target-kl", type=float, default=.02)
-    parser.add_argument("--bc-kl-coef", type=float, default=.01)
+    parser.add_argument("--target-kl", type=float, default=cfg.get("target_kl", .02))
+    parser.add_argument("--bc-kl-coef", type=float, default=cfg.get("bc_kl_coef", .01))
     parser.add_argument("--clip-ratio", type=float, default=cfg.get("clip_ratio", .2))
     parser.add_argument("--value-coef", type=float, default=cfg.get("value_coef", .5))
     parser.add_argument("--entropy-coef", type=float, default=cfg.get("entropy_coef", .01))
     parser.add_argument("--minibatch-size", type=int, default=1024)
+    parser.add_argument("--reward-mode", choices=("terminal_only", "shaped"),
+                        default=reward_cfg.get("mode", "shaped"))
     parser.add_argument("--score-scale", type=float, default=reward_cfg.get("score_scale", 64.0))
     parser.add_argument("--qualifying-win-bonus", type=float, default=reward_cfg.get("qualifying_win_bonus", .5))
     parser.add_argument("--direct-deal-in-penalty", type=float, default=reward_cfg.get("direct_deal_in_penalty", .25))
@@ -198,13 +201,17 @@ def main():
     parser.add_argument("--direct-deal-in-pos-weight", type=float,
                         default=cfg.get("direct_deal_in_pos_weight", 8.0))
     parser.add_argument("--belief-mode", choices=("none", "aux", "actor"),
-                        default=cfg.get("belief_mode", "actor"))
+                        default=cfg.get("belief_mode", "aux"))
     parser.add_argument("--metrics-jsonl", default="")
     parser.add_argument("--seed", type=int, default=2026)
     args = parser.parse_args()
     distributed = int(os.environ.get("WORLD_SIZE", "1")) > 1
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     rank = int(os.environ.get("RANK", "0"))
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    if args.games_per_update < world or args.games_per_update % world:
+        raise ValueError(
+            "games_per_update must be divisible by WORLD_SIZE and at least WORLD_SIZE")
     if distributed:
         torch.distributed.init_process_group("nccl")
         torch.cuda.set_device(local_rank)
@@ -218,6 +225,7 @@ def main():
         torch.nn.init.zeros_(model.belief_adapter.bias)
     model.to(device)
     reference, _ = load_model_from_checkpoint(args.checkpoint)
+    reference.belief_mode = args.belief_mode
     reference.to(device).eval()
     for parameter in reference.parameters():
         parameter.requires_grad = False
@@ -258,8 +266,11 @@ def main():
         rollout_started = time.time()
         learner_policy = ModelPolicy(model, stochastic=True)
         jobs = []
-        for game in range(args.games_per_update):
-            learner_seat = (rank + update + game) % 4
+        # games_per_update is the global rollout budget. DDP ranks process
+        # disjoint game indices so two GPUs increase throughput without
+        # silently multiplying the requested sample budget.
+        for game in rollout_game_indices(args.games_per_update, rank, world):
+            learner_seat = (update + game) % 4
             policies = [None] * 4
             for seat in range(4):
                 if seat == learner_seat:
@@ -275,7 +286,7 @@ def main():
             wave = jobs[start:start + rollout_envs]
             outcomes.extend(play_episodes_vectorized(
                 [item[2] for item in wave],
-                [args.seed + rank * 1000000 + update * 1000 + item[0] for item in wave],
+                [args.seed + update * 1000000 + item[0] for item in wave],
                 collect=True))
         for (_, learner_seat, _), (result, trajectory) in zip(jobs, outcomes):
             raw_score = result["scores"][learner_seat]
@@ -283,10 +294,11 @@ def main():
             terminal = float(torch.tanh(torch.tensor(raw_score / args.score_scale)))
             learner_records = [item for item in trajectory if item["player"] == learner_seat]
             direct_index = direct_deal_in_index(learner_records, result, learner_seat)
-            if direct_index >= 0:
-                terminal -= args.direct_deal_in_penalty
-            if result["winner"] == learner_seat and result["fan_count"] >= 8:
-                terminal += args.qualifying_win_bonus
+            if args.reward_mode == "shaped":
+                if direct_index >= 0:
+                    terminal -= args.direct_deal_in_penalty
+                if result["winner"] == learner_seat and result["fan_count"] >= 8:
+                    terminal += args.qualifying_win_bonus
             game_records = [padded_record(item, result, learner_seat, index == direct_index)
                             for index, item in enumerate(learner_records)]
             if not game_records:
@@ -296,11 +308,19 @@ def main():
             with torch.no_grad():
                 values = model(features.to(device), actions.to(device), masks.to(device),
                                feature_masks.to(device), action_token_masks.to(device))["value"].cpu().tolist()
-            potentials = [public_potential(item["observation"], coefficients, item["action"])
-                          for item in learner_records]
-            rewards, reward_details = shaped_rewards(
-                potentials, terminal, args.gamma, args.step_shaping_cap,
-                args.episode_shaping_cap)
+            if args.reward_mode == "terminal_only":
+                rewards = terminal_only_rewards(len(learner_records), terminal)
+                reward_details = [{"terminal_reward": terminal}
+                                  if index == len(learner_records) - 1 else {}
+                                  for index in range(len(learner_records))]
+            else:
+                potentials = [
+                    public_potential(item["observation"], coefficients, item["action"])
+                    for item in learner_records
+                ]
+                rewards, reward_details = shaped_rewards(
+                    potentials, terminal, args.gamma, args.step_shaping_cap,
+                    args.episode_shaping_cap)
             for detail in reward_details:
                 reward_totals.update(detail)
             advantages, returns = generalized_advantage_estimate(
@@ -340,6 +360,9 @@ def main():
             direct_deal_in_pos_weight=args.direct_deal_in_pos_weight)
         metrics.update({
             "update": update + 1, "raw_score_mean": sum(raw_scores) / max(1, len(raw_scores)),
+            "reward_mode": args.reward_mode,
+            "rollout_games_global": args.games_per_update,
+            "rollout_games_rank": len(raw_scores),
             "opponent_samples": dict(opponent_counts),
             "reward_components": dict(reward_totals),
             "rollout_games_per_second": len(raw_scores) / max(1e-6, time.time() - rollout_started),
@@ -372,14 +395,28 @@ def main():
                     "algorithm": "ppo", "updates": update + 1, "metrics": metrics,
                     "seed": args.seed, "opponent_pool": dict(opponent_counts),
                     "reward_coefficients": coefficients,
+                    "reward_mode": args.reward_mode,
                     "belief_mode": args.belief_mode,
+                    "games_per_update": args.games_per_update,
+                    "rollout_envs": args.rollout_envs,
+                    "league_games": args.league_games,
+                    "learning_rate": args.lr,
+                    "target_kl": args.target_kl,
+                    "bc_kl_coef": args.bc_kl_coef,
                 })
     if not distributed or rank == 0:
         saved = model.module if distributed else model
         save_checkpoint(args.output, saved, optimizer, {
             "algorithm": "ppo", "updates": args.updates, "seed": args.seed,
             "reward_coefficients": coefficients,
+            "reward_mode": args.reward_mode,
             "belief_mode": args.belief_mode,
+            "games_per_update": args.games_per_update,
+            "rollout_envs": args.rollout_envs,
+            "league_games": args.league_games,
+            "learning_rate": args.lr,
+            "target_kl": args.target_kl,
+            "bc_kl_coef": args.bc_kl_coef,
         })
     if distributed:
         torch.distributed.destroy_process_group()

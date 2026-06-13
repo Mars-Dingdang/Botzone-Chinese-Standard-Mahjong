@@ -1,6 +1,18 @@
 """Masked-action PPO utilities used by the single-machine trainer."""
 
 
+def rollout_game_indices(total_games, rank=0, world_size=1):
+    """Return this rank's disjoint share of a global rollout game budget."""
+    return range(rank, total_games, world_size)
+
+
+def terminal_only_rewards(length, terminal_reward):
+    rewards = [0.0] * length
+    if rewards:
+        rewards[-1] = terminal_reward
+    return rewards
+
+
 def potential_shaped_rewards(potentials, terminal_reward, gamma=0.99, coefficient=0.02):
     """Apply potential shaping, including the terminal transition to Phi=0."""
     # potentials/rewards 均为长度 T 的 Python float 列表。
