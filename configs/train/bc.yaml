@@ -1,4 +1,4 @@
-epochs: 50
+epochs: 18
 batch_size: 512
 learning_rate: 0.0003
 min_learning_rate: 0.00003

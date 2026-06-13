@@ -14,7 +14,7 @@ from mahjong_agent.policies import HeuristicPolicy
 
 
 def load_policy(model_path=None):
-    model_path = model_path or os.environ.get("MAHJONG_MODEL", os.path.join("data", "model_sl_2.pt"))
+    model_path = model_path or os.environ.get("MAHJONG_MODEL", os.path.join("data", "model_2.pt"))
     try:
         import torch
         from mahjong_agent.policies.model import ModelPolicy
