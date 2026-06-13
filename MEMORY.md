@@ -1,6 +1,6 @@
 # Training Memory
 
-Updated: 2026-06-12 (Asia/Shanghai), active v4 training pass
+Updated: 2026-06-13 (Asia/Shanghai), high-fan PPO/BC revision
 
 ## Current Status
 
@@ -73,9 +73,15 @@ clip epsilon = 0.2
 ```
 
 - Starts from best BC checkpoint
-- Learner seat rotates; opponents mix heuristic and random policies
+- Learner seat rotates; opponents default to BC 40%, frozen PPO snapshots 55%,
+  and heuristic 5%; missing PPO categories fall back to BC
 - Four PPO epochs per collected batch, AdamW learning rate `1e-4`
-- Uses terminal reward plus low-weight shanten/useful-tile potential shaping (`0.02` by default)
+- Uses score, qualifying 8+ fan win bonus, direct deal-in penalty, and
+  potential shaping from qualifying waits/fan structure/action-aware risk
+- Each DDP rank synchronously advances configurable parallel environments and
+  batches decisions by model policy
+- PPO trains state and chosen-action outcome/fan heads plus privileged belief labels;
+  actor belief input defaults to stop-gradient `belief_mode=actor`
 - Uses normalized advantages, approximate-KL early stop, clip fraction and explained variance metrics
 
 ## Completed Results
@@ -120,7 +126,10 @@ Checkpoints:
 - The active pipeline uses `artifacts/official_bc_v4` and `artifacts/official_bc_v4_tensors`; legacy `official_bc_full_*` paths are migrated by the pipeline.
 - Environment now collects all three claim responses, resolves priority, passes official fan context and scores by real fan count.
 - Robbing a kong and remaining official-rule edge cases still need differential tests against the bundled official environment.
-- PPO rollout is CPU/environment limited and GPU utilization is expected to be low.
-- Auxiliary head has no supervised targets yet.
-- Belief teacher-student, fan-template prediction, persistent opponent pool, actor-learner/V-trace and search remain future work.
+- Synchronous vector rollout reduces per-decision inference overhead, but rule
+  evaluation and heuristic opponents remain CPU-bound.
+- Existing BC tensor cache has terminal outcome/fan labels only. It cannot
+  supervise counterfactual fan potential for expert-rejected candidate actions.
+- Rich fan-template prediction, persistent cross-run league state,
+  asynchronous actor-learner/V-trace and search remain future work.
 - The active v4 pipeline still needs to finish BC selection, PPO training, and duplicate model selection.

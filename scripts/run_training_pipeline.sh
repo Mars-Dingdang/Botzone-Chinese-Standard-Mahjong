@@ -157,6 +157,7 @@ if run_stage rl; then
   fi
   torchrun --standalone --nproc_per_node="$GPUS" scripts/train_ppo.py \
     --checkpoint "$run_dir/bc_model.best.pt" --output "$run_dir/ppo_model.pt" \
+    --config "${PPO_CONFIG:-configs/train/ppo.yaml}" \
     --updates "${PPO_UPDATES:-100}" --games-per-update "${PPO_GAMES_PER_UPDATE:-8}" \
     --save-every "${PPO_SAVE_EVERY:-10}" --metrics-jsonl "$run_dir/logs/ppo_metrics.jsonl" \
     --seed "$EVAL_SEED" "${ppo_resume[@]}" 2>&1 | tee "$run_dir/logs/ppo.log"

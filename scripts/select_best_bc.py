@@ -50,9 +50,10 @@ def main():
     for path in paths:
         evaluation, metadata = evaluate_path(path, args.games, args.seed, manifest)
         validation = metadata.get("val", {})
-        key = (validation.get("exact_accuracy", validation.get("accuracy", 0.0)),
-               -validation.get("nll", float("inf")),
-               evaluation["average_score"])
+        key = (evaluation.get("qualifying_win_rate", evaluation["win_rate"]),
+               evaluation["average_score"],
+               validation.get("eight_fan_exact_accuracy", 0.0),
+               validation.get("exact_accuracy", validation.get("accuracy", 0.0)))
         results.append({"path": path, "evaluation": evaluation,
                         "validation": metadata.get("val", {})})
         with open(os.path.join(
@@ -66,7 +67,7 @@ def main():
         shutil.copyfile(best_path + ".json", args.output + ".json")
     with open(args.report, "w") as handle:
         json.dump({"selected": best_path, "selection_rule":
-                   "exact_accuracy_then_negative_nll_then_average_score",
+                   "qualifying_win_rate_then_average_score_then_eight_fan_accuracy",
                    "results": results}, handle, indent=2, sort_keys=True)
     print("selected %s -> %s" % (best_path, args.output))
 

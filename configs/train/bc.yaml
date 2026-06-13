@@ -14,3 +14,7 @@ fan_aux_coef: 0.05
 belief_aux_coef: 0.02
 value_loss_coef: 0.1
 belief_mode: aux
+eight_fan_policy_weight: 3.0
+win_pos_weight: 3.0
+deal_in_pos_weight: 3.0
+eight_fan_pos_weight: 5.0

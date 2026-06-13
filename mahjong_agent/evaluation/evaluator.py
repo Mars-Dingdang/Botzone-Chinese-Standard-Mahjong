@@ -56,6 +56,8 @@ def _policy_metrics(results, target_seats):
     draw_tenpai = [result["draw"] and result["tenpai"][seat]
                    for result, seat in zip(results, target_seats)]
     fans = [result["fan_count"] for result, win in zip(results, wins) if win]
+    qualifying_wins = [win and result["fan_count"] >= 8
+                       for result, win in zip(results, wins)]
     actions = Counter()
     latencies = []
     for result, seat in zip(results, target_seats):
@@ -67,6 +69,7 @@ def _policy_metrics(results, target_seats):
         "games": len(results), "average_score": _mean(scores), "score_std": _std(scores),
         "score_95_ci": confidence_interval(scores), "win_rate": _mean(wins),
         "self_draw_rate": _mean(self_draws), "deal_in_rate": _mean(deal_ins),
+        "qualifying_win_rate": _mean(qualifying_wins),
         "draw_tenpai_rate": _mean(draw_tenpai), "average_fan": _mean(fans),
         "fan_distribution": dict(Counter(fans)), "action_distribution": dict(actions),
         "invalid_actions": sum(result["invalid_actions"] for result in results),

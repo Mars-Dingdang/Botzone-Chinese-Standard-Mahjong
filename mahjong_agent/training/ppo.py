@@ -27,7 +27,8 @@ def generalized_advantage_estimate(rewards, values, gamma=0.99, gae_lambda=0.95)
 
 def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                entropy_coef=0.01, epochs=4, target_kl=0.02, bc_kl_coef=0.01,
-               minibatch_size=1024, aux_coef=0.05):
+               minibatch_size=1024, aux_coef=0.05, deal_in_pos_weight=3.0,
+               direct_deal_in_pos_weight=8.0):
     import torch
     model.train()
     # PPO ratios require deterministic old/new log probabilities. Keep gradients
@@ -83,7 +84,9 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
             if batch.get("aux_labels") is not None and "outcome" in output:
                 labels = batch["aux_labels"][index]
                 binary = torch.nn.functional.binary_cross_entropy_with_logits(
-                    output["outcome"][:, [0, 1, 3]], labels[:, [0, 1, 3]])
+                    output["outcome"][:, [0, 1, 3]], labels[:, [0, 1, 3]],
+                    pos_weight=torch.tensor(
+                        [1.0, deal_in_pos_weight, 1.0], device=features.device))
                 score = torch.nn.functional.mse_loss(output["outcome"][:, 2], labels[:, 2])
                 fan = torch.nn.functional.cross_entropy(
                     output["fan_logits"], batch["fan_targets"][index])
@@ -95,7 +98,21 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                 constraint = torch.nn.functional.mse_loss(
                     expected.sum(-1) / 14.0,
                     batch["belief_targets"][index].float().sum(-1) / 14.0)
-                aux_loss = binary + score + fan + belief + .01 * constraint
+                chosen_outcome = output["action_outcome"][
+                    torch.arange(len(index), device=features.device), chosen]
+                action_labels = batch.get("action_aux_labels", batch["aux_labels"])[index]
+                action_binary = torch.nn.functional.binary_cross_entropy_with_logits(
+                    chosen_outcome[:, [0, 1, 3]], action_labels[:, [0, 1, 3]],
+                    pos_weight=torch.tensor(
+                        [1.0, direct_deal_in_pos_weight, 1.0], device=features.device))
+                action_score = torch.nn.functional.mse_loss(
+                    chosen_outcome[:, 2], action_labels[:, 2])
+                action_fan = torch.nn.functional.cross_entropy(
+                    output["action_fan_logits"][
+                        torch.arange(len(index), device=features.device), chosen],
+                    batch["fan_targets"][index])
+                aux_loss = (binary + score + fan + belief + .01 * constraint +
+                            action_binary + action_score + action_fan)
             loss = (policy_loss + value_coef * value_loss - entropy_coef * entropy
                     + bc_kl_coef * bc_kl + aux_coef * aux_loss)
             optimizer.zero_grad()

@@ -47,6 +47,7 @@ def _parser():
     parser.add_argument("--weight-decay", type=float, default=cfg.get("weight_decay", 0.01))
     parser.add_argument("--warmup-fraction", type=float, default=cfg.get("warmup_fraction", 0.05))
     parser.add_argument("--resume", default="")
+    parser.add_argument("--init-checkpoint", default="")
     parser.add_argument("--max-steps", type=int, default=0)
     parser.add_argument("--patience", type=int, default=cfg.get("patience", 8))
     parser.add_argument("--min-epochs", type=int, default=cfg.get("min_epochs", 20))
@@ -56,6 +57,13 @@ def _parser():
     parser.add_argument("--fan-aux-coef", type=float, default=cfg.get("fan_aux_coef", 0.05))
     parser.add_argument("--belief-aux-coef", type=float, default=cfg.get("belief_aux_coef", 0.02))
     parser.add_argument("--value-loss-coef", type=float, default=cfg.get("value_loss_coef", 0.1))
+    parser.add_argument("--eight-fan-policy-weight", type=float,
+                        default=cfg.get("eight_fan_policy_weight", 3.0))
+    parser.add_argument("--win-pos-weight", type=float, default=cfg.get("win_pos_weight", 3.0))
+    parser.add_argument("--deal-in-pos-weight", type=float,
+                        default=cfg.get("deal_in_pos_weight", 3.0))
+    parser.add_argument("--eight-fan-pos-weight", type=float,
+                        default=cfg.get("eight_fan_pos_weight", 5.0))
     parser.add_argument("--belief-mode", choices=("none", "aux", "actor"),
                         default=cfg.get("belief_mode", "aux"))
     parser.add_argument("--disable-auxiliary-logit-fusion", action="store_true")
@@ -92,11 +100,16 @@ def _loss(output, targets, types, action_mask, aux, fan_targets, belief_targets,
     log_probs = torch.nn.functional.log_softmax(output["logits"], dim=1)
     nll = -log_probs[rows, targets]
     smooth = -(log_probs * action_mask.float()).sum(1) / action_mask.sum(1).clamp_min(1)
-    policy = ((1.0 - args.label_smoothing) * nll + args.label_smoothing * smooth).mean()
+    sample_loss = (1.0 - args.label_smoothing) * nll + args.label_smoothing * smooth
+    sample_weight = 1.0 + aux[:, 3] * (args.eight_fan_policy_weight - 1.0)
+    policy = (sample_loss * sample_weight).sum() / sample_weight.sum().clamp_min(1.0)
     family = torch.nn.functional.cross_entropy(output["family_scores"], types)
     chosen_outcome = output["action_outcome"][rows, targets]
     binary = torch.nn.functional.binary_cross_entropy_with_logits(
-        chosen_outcome[:, [0, 1, 3]], aux[:, [0, 1, 3]])
+        chosen_outcome[:, [0, 1, 3]], aux[:, [0, 1, 3]],
+        pos_weight=torch.tensor(
+            [args.win_pos_weight, args.deal_in_pos_weight, args.eight_fan_pos_weight],
+            device=targets.device))
     score = torch.nn.functional.mse_loss(chosen_outcome[:, 2], aux[:, 2])
     value = torch.nn.functional.mse_loss(output["value"], aux[:, 2])
     fan = torch.nn.functional.cross_entropy(output["action_fan_logits"][rows, targets], fan_targets)
@@ -157,7 +170,9 @@ def epoch(model, optimizer, scheduler, data, device, scaler, train, args, desc,
                       play_correct=int((matches & (chosen_types == int(ActionType.PLAY))).sum()),
                       play_total=int((chosen_types == int(ActionType.PLAY)).sum()),
                       claim_correct=int((matches & claim).sum()),
-                      claim_total=int(claim.sum()))
+                      claim_total=int(claim.sum()),
+                      eight_fan_correct=int((matches & (aux[:, 3] > .5)).sum()),
+                      eight_fan_total=int((aux[:, 3] > .5).sum()))
         totals["nll"] += float(torch.nn.functional.cross_entropy(
             output["logits"], targets, reduction="sum"))
         totals["loss"] += float(loss) * samples
@@ -181,6 +196,7 @@ def epoch(model, optimizer, scheduler, data, device, scaler, train, args, desc,
         "tactical_accuracy_given_family": totals["tactical_correct"] / max(1, totals["tactical_total"]),
         "play_accuracy": totals["play_correct"] / max(1, totals["play_total"]),
         "claim_exact_accuracy": totals["claim_correct"] / max(1, totals["claim_total"]),
+        "eight_fan_exact_accuracy": totals["eight_fan_correct"] / max(1, totals["eight_fan_total"]),
         "macro_family_recall": sum(recalls.values()) / len(ActionType),
         "family_recall": recalls, "samples": int(totals["samples"]),
         "samples_by_action": {key: int(value) for key, value in family_total.items()},
@@ -218,6 +234,13 @@ def main():
                     "dropout": args.dropout, "belief_mode": args.belief_mode,
                     "auxiliary_logit_fusion": not args.disable_auxiliary_logit_fusion}
     model = create_model(2, **model_kwargs).to(device)
+    if args.init_checkpoint:
+        if args.resume:
+            raise ValueError("--init-checkpoint and --resume are mutually exclusive")
+        init_meta = load_checkpoint(args.init_checkpoint, model)
+        if args.belief_mode == "actor" and init_meta.get("belief_mode", "aux") != "actor":
+            torch.nn.init.zeros_(model.belief_adapter.weight)
+            torch.nn.init.zeros_(model.belief_adapter.bias)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     _, rank_steps = tensor_shard_plan(args.data, "train", world, args.batch_size, args.seed, 0)
     steps_per_epoch = min(rank_steps)
@@ -274,6 +297,8 @@ def main():
                         "batch_size_per_rank": args.batch_size,
                         "effective_batch_size": args.batch_size * world,
                         "learning_rate": optimizer.param_groups[0]["lr"], "seed": args.seed}
+            gate_owner = model.module if distributed else model
+            metadata["auxiliary_logit_gate"] = gate_owner.auxiliary_logit_gate.detach().cpu().tolist()
             saved = model.module if distributed else model
             save_checkpoint(args.output, saved, optimizer, metadata, scheduler)
             epoch_path = args.output.replace(".pt", ".epoch-%04d.pt" % (epoch_index + 1))

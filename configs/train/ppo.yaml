@@ -6,16 +6,25 @@ value_coef: 0.5
 entropy_coef: 0.01
 feature_version: 2
 history_capacity: 8
+history_every: 10
+league_games: 8
+rollout_envs: 8
+belief_mode: actor
+deal_in_pos_weight: 3.0
+direct_deal_in_pos_weight: 8.0
 opponent_mix:
-  current_best: 0.40
-  history: 0.30
-  bc_heuristic: 0.25
-  random: 0.05
+  bc: 0.40
+  ppo_latest: 0.20
+  ppo_best: 0.15
+  ppo_history: 0.20
+  heuristic: 0.05
 reward:
   score_scale: 64
-  efficiency_coef: 0.02
-  fan_feasibility_coef: 0.02
-  deal_in_risk_coef: 0.01
+  qualifying_win_bonus: 0.5
+  direct_deal_in_penalty: 0.25
+  efficiency_coef: 0.01
+  fan_feasibility_coef: 0.05
+  deal_in_risk_coef: 0.03
   draw_tenpai_coef: 0.0
   step_shaping_cap: 0.1
   episode_shaping_cap: 1.0
