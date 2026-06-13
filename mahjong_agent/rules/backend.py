@@ -10,23 +10,27 @@ from itertools import product
 
 
 def _tile_to_name(tile):
+    # 将内部 tile id[int, 0..33] 转为 MahjongGB 使用的字符串牌名。
     if tile < 27:
         return ("W", "T", "B")[tile // 9] + str(tile % 9 + 1)
     return ("F1", "F2", "F3", "F4", "J1", "J2", "J3")[tile - 27]
 
 
 def _remove_sets(counts, sets_left):
+    # counts 是可 hash 的 34 维 tuple；递归尝试移除刻子或顺子。
     if sets_left == 0:
         return all(value == 0 for value in counts)
     try:
         first = next(i for i, value in enumerate(counts) if value)
     except StopIteration:
         return False
+    # 分支一：把最靠前的剩余牌作为刻子的三张。
     if counts[first] >= 3:
         nxt = list(counts)
         nxt[first] -= 3
         if _remove_sets(tuple(nxt), sets_left - 1):
             return True
+    # 分支二：数牌且点数不超过7时，可作为顺子的起点。
     if first < 27 and first % 9 <= 6 and counts[first + 1] and counts[first + 2]:
         nxt = list(counts)
         nxt[first] -= 1
@@ -39,6 +43,7 @@ def _remove_sets(counts, sets_left):
 
 @lru_cache(maxsize=200000)
 def _standard_win(counts, meld_count):
+    # 标准和牌结构为四组面子加一对将；已有副露会减少暗手需组成的面子数。
     sets_left = 4 - meld_count
     if sum(counts) != sets_left * 3 + 2:
         return False
@@ -52,6 +57,7 @@ def _standard_win(counts, meld_count):
 
 
 def _pack_variants(melds, player_id):
+    # 将内部 Meld 转为 MahjongGB pack；CHI 的来源方向存在三种兼容性枚举。
     choices = []
     for meld in melds:
         kind = meld.kind.name
@@ -69,6 +75,7 @@ def _fan_total(result):
 
 class RulesBackend(object):
     def __init__(self):
+        # 官方库是可选依赖；缺失时退化为本地结构判断。
         try:
             from MahjongGB import MahjongFanCalculator
             self.official_fan_calculator = MahjongFanCalculator
@@ -78,14 +85,17 @@ class RulesBackend(object):
             self.has_official = False
 
     def is_complete_hand(self, counts, melds=()):
+        # counts shape=[34]；除标准型外，无副露时也接受七对。
         if _standard_win(tuple(counts), len(melds)):
             return True
         return not melds and sum(value == 2 for value in counts) == 7
 
     def fan(self, counts, melds=(), win_tile=-1, context=None):
+        # 返回整数番数；官方计算失败时保守退化为“完整牌型=8番”。
         if self.has_official and win_tile >= 0 and context is not None:
             try:
                 hand = []
+                # 官方接口要求暗手中不包含单独传入的和牌，因此先减去 win_tile。
                 work = list(counts)
                 work[win_tile] -= 1
                 for tile, count in enumerate(work):
@@ -126,6 +136,7 @@ class RulesBackend(object):
             work[win_tile] -= 1
             for tile, count in enumerate(work):
                 hand.extend([_tile_to_name(tile)] * count)
+            # 多个 pack 来源方向均计算，取最小番数以避免误报合法和牌。
             totals = []
             for pack in _pack_variants(melds, context.get("player_id", 0)):
                 result = self.official_fan_calculator(
@@ -150,6 +161,7 @@ class RulesBackend(object):
             return -1
         best = 8
         work = list(counts)
+        # 逐种尝试摸一张；若可立即完整和牌，则当前为听牌，返回0。
         for tile in range(34):
             if work[tile] >= 4:
                 continue
@@ -158,12 +170,14 @@ class RulesBackend(object):
                 return 0
             work[tile] -= 1
         # Fast structural approximation outside tenpai.
+        # 非听牌时使用快速结构近似，而非完整的精确向听数算法。
         sets = sum(value // 3 for value in work)
         pairs = sum(value >= 2 for value in work)
         best = max(0, 8 - sets * 2 - min(pairs, 1))
         return best
 
     def useful_tiles(self, counts, melds=()):
+        # 返回所有能严格降低当前向听数的 tile id。
         current = self.shanten(counts, melds)
         useful = []
         work = list(counts)

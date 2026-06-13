@@ -3,6 +3,7 @@
 
 def potential_shaped_rewards(potentials, terminal_reward, gamma=0.99, coefficient=0.02):
     """Apply potential shaping, including the terminal transition to Phi=0."""
+    # potentials/rewards 均为长度 T 的 Python float 列表。
     rewards = [0.0] * len(potentials)
     if not rewards:
         return rewards
@@ -15,6 +16,7 @@ def potential_shaped_rewards(potentials, terminal_reward, gamma=0.99, coefficien
 
 def generalized_advantage_estimate(rewards, values, gamma=0.99, gae_lambda=0.95):
     """Return GAE advantages and value targets for one decision trajectory."""
+    # rewards 与 values 长度均为 T；末端之后的 bootstrap value 视为0。
     advantages = [0.0] * len(rewards)
     last = 0.0
     for index in range(len(rewards) - 1, -1, -1):
@@ -36,9 +38,11 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
     for module in model.modules():
         if isinstance(module, torch.nn.Dropout):
             module.eval()
+    # batch 内所有 tensor 首维均为样本数 N。
     sample_count = batch["features"].size(0)
     distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
     if distributed:
+        # 多 rank 统一裁剪到最小样本数，防止 collective 操作因步数不同而挂起。
         shared_count = torch.tensor([sample_count], device=batch["features"].device)
         torch.distributed.all_reduce(shared_count, op=torch.distributed.ReduceOp.MIN)
         sample_count = int(shared_count.item())
@@ -49,6 +53,7 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
     totals = {}
     updates = 0
     completed_epochs = 0
+    # 每个 epoch 打乱样本，再按 minibatch 执行 PPO 更新。
     for _ in range(epochs):
         order = torch.randperm(sample_count, device=batch["features"].device)
         epoch_kl = 0.0
@@ -67,8 +72,10 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                 kwargs["feature_mask"] = batch["feature_masks"][index]
                 kwargs["action_token_mask"] = batch["action_token_masks"][index]
             output = model(features, actions, masks, **kwargs)
+            # logits shape=[M,A]；chosen shape=[M]，M 为当前 minibatch 大小。
             distribution = torch.distributions.Categorical(logits=output["logits"])
             log_probs = distribution.log_prob(chosen)
+            # ratio 为新旧策略对已选动作的概率比，shape=[M]。
             ratio = (log_probs - old_log_probs).exp()
             clipped = ratio.clamp(1.0 - clip_ratio, 1.0 + clip_ratio)
             policy_loss = -torch.min(ratio * advantages, clipped * advantages).mean()
@@ -82,6 +89,7 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                 bc_kl = torch.distributions.kl_divergence(reference, distribution).mean()
             aux_loss = torch.zeros((), device=features.device)
             if batch.get("aux_labels") is not None and "outcome" in output:
+                # aux_labels shape=[M,4]；belief_targets shape=[M,3,34]，类别为0..4。
                 labels = batch["aux_labels"][index]
                 binary = torch.nn.functional.binary_cross_entropy_with_logits(
                     output["outcome"][:, [0, 1, 3]], labels[:, [0, 1, 3]],
@@ -115,6 +123,7 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                             action_binary + action_score + action_fan)
             loss = (policy_loss + value_coef * value_loss - entropy_coef * entropy
                     + bc_kl_coef * bc_kl + aux_coef * aux_loss)
+            # 清梯度、反传、裁剪全局梯度范数并更新参数。
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -133,6 +142,7 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
             epoch_updates += 1
             epoch_kl += float(approx_kl.item())
         completed_epochs += 1
+        # 平均近似 KL 超阈值时提前结束剩余 epoch。
         should_stop = target_kl > 0 and epoch_kl / max(1, epoch_updates) > target_kl
         if distributed:
             stop_tensor = torch.tensor([int(should_stop)], device=batch["features"].device)

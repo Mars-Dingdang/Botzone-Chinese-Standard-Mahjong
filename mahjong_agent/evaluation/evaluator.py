@@ -10,6 +10,7 @@ from mahjong_agent.training.rollout import play_episode
 
 
 def _mean(values):
+    # 空列表按分母1处理，结果为0。
     return sum(values) / float(max(1, len(values)))
 
 
@@ -21,12 +22,14 @@ def _std(values):
 
 
 def confidence_interval(values):
+    # 使用正态近似计算均值的双侧95%置信区间。
     mean = _mean(values)
     margin = 1.96 * _std(values) / math.sqrt(max(1, len(values)))
     return [mean - margin, mean + margin]
 
 
 def create_wall_manifest(walls=100, seed=2026):
+    # 固定生成并保存牌墙顺序，使不同策略可在完全相同局面上比较。
     result = []
     for index in range(walls):
         wall = full_wall()
@@ -49,6 +52,7 @@ def save_wall_manifest(path, manifest):
 
 
 def _policy_metrics(results, target_seats):
+    # results 与 target_seats 等长；每局只统计指定目标座位的表现。
     scores = [result["scores"][seat] for result, seat in zip(results, target_seats)]
     wins = [result["winner"] == seat for result, seat in zip(results, target_seats)]
     self_draws = [win and result["self_drawn"] for win, result in zip(wins, results)]
@@ -80,6 +84,7 @@ def _policy_metrics(results, target_seats):
 
 
 def evaluate(policies, games=20, seed=0, progress=False):
+    # 四个策略固定座位，独立随机牌墙评估。
     results = []
     iterator = range(games)
     if progress:
@@ -104,6 +109,7 @@ def evaluate_duplicate(policy_a, policy_b, walls=4, seed=0,
         iterator = tqdm(iterator, desc="duplicate-eval", unit="wall")
     wall_scores = []
     started = time.time()
+    # 每副固定牌墙让 policy_a 轮换四个座位，减小座次和发牌运气影响。
     for entry in iterator:
         current = []
         for a_seat in range(4):
@@ -127,6 +133,7 @@ def evaluate_duplicate(policy_a, policy_b, walls=4, seed=0,
 
 
 def paired_delta(candidate, baseline):
+    # 两次评估必须共享相同 manifest；按墙配对后计算差值区间。
     values = [left - right for left, right in zip(
         candidate["wall_scores"], baseline["wall_scores"])]
     return {"score_delta": _mean(values), "score_delta_std": _std(values),

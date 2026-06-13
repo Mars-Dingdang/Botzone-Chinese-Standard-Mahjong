@@ -5,11 +5,13 @@ import time
 
 
 def early_stopping_state(best, stale_epochs, value):
+    # 返回更新后的最佳值、连续未提升轮数以及本轮是否提升。
     improved = value > best
     return (value if improved else best), (0 if improved else stale_epochs + 1), improved
 
 
 def _commit():
+    # 尝试记录当前 Git commit；非 Git 环境中使用 "unknown"。
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
@@ -19,6 +21,7 @@ def _commit():
 
 
 def save_checkpoint(path, model, optimizer=None, metadata=None, scheduler=None):
+    # payload 保存可恢复训练的 state_dict；旁路 JSON 仅保存便于查看的 metadata。
     import torch
     payload = {
         "model": model.state_dict(),
@@ -40,12 +43,14 @@ def save_checkpoint(path, model, optimizer=None, metadata=None, scheduler=None):
 
 
 def checkpoint_metadata(path, map_location="cpu"):
+    # 只读取 checkpoint 内 metadata dict。
     import torch
     return torch.load(path, map_location=map_location).get("metadata", {})
 
 
 def load_checkpoint(path, model, optimizer=None, map_location="cpu", scheduler=None,
                     allow_version_mismatch=False):
+    # 默认严格校验特征和架构版本，避免形状兼容但语义不同的权重被误载。
     import torch
     payload = torch.load(path, map_location=map_location)
     metadata = payload.get("metadata", {})
@@ -69,6 +74,7 @@ def load_checkpoint(path, model, optimizer=None, map_location="cpu", scheduler=N
 
 
 def load_model_from_checkpoint(path, map_location="cpu"):
+    # 先根据 metadata 构造正确模型，再加载权重；返回 (model, metadata)。
     from mahjong_agent.models import create_model
     metadata = checkpoint_metadata(path, map_location)
     model = create_model(metadata.get("feature_version", 1),

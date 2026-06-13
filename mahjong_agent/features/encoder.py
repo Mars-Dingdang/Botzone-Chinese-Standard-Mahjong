@@ -7,24 +7,30 @@ from mahjong_agent.engine.actions import Action, ActionType, Meld
 from mahjong_agent.rules import default_backend
 
 EVENT_TYPES = ("DRAW", "PLAY", "CHI", "PENG", "GANG", "BUGANG", "HU")
+# V1 状态向量由手牌34、可见牌34、四家弃牌136、四家副露136、有用牌34、
+# 事件计数7和全局标量13拼接而成；动作向量固定为8维。
 FEATURE_SIZE = 34 + 34 + 4 * 34 + 4 * 34 + 34 + len(EVENT_TYPES) + 13
 ACTION_SIZE = 8
 
 
 def _counts(tiles):
+    # 输入是 tile id 列表；输出 shape=[34]，每种牌张数除以4归一化到 [0,1]。
     counter = Counter(tile for tile in tiles if 0 <= tile < 34)
     return [float(counter.get(tile, 0)) / 4.0 for tile in range(34)]
 
 
 def serialize_meld(meld):
+    # Meld -> 可 JSON 序列化的 [kind, from_player, tile0, ...]。
     return [int(meld.kind), int(meld.from_player)] + [int(tile) for tile in meld.tiles]
 
 
 def deserialize_meld(data):
+    # data 至少含两个整数，后续元素为副露中的牌。
     return Meld(ActionType(int(data[0])), tuple(int(tile) for tile in data[2:]), int(data[1]))
 
 
 def serialize_action(action):
+    # 固定长度6：[kind, tile, discard, seq0, seq1, seq2]，缺失顺子牌以 -1 padding。
     sequence = list(action.sequence)[:3]
     sequence += [-1] * (3 - len(sequence))
     return [int(action.kind), int(action.tile), int(action.discard)] + sequence
@@ -36,6 +42,7 @@ def deserialize_action(data):
 
 
 def compact_observation(observation):
+    # 将含 namedtuple 的运行时 observation 转换为仅含 JSON 基础类型的 dict。
     events = []
     for event in observation["events"]:
         if not event:
@@ -66,6 +73,7 @@ def compact_observation(observation):
 
 
 def expand_observation(observation):
+    # compact_observation 的逆操作：重建 tuple 事件和 Meld 对象。
     events = []
     for event in observation.get("events", []):
         if isinstance(event, dict):
@@ -97,6 +105,7 @@ def expand_observation(observation):
 
 
 def _meld_signature(melds):
+    # 转为可 hash 的 tuple，供 lru_cache 作为 key。
     return tuple((int(meld.kind), tuple(int(tile) for tile in meld.tiles), int(meld.from_player)) for meld in melds)
 
 
@@ -110,6 +119,7 @@ def _cached_default_stats(counts_key, meld_key):
 
 
 def observation_stats(counts, melds, rules=None):
+    # counts shape=[34]；返回 (shanten:int, useful_tiles:tuple[int,...])。
     rules = rules or default_backend
     if rules is default_backend:
         return _cached_default_stats(tuple(counts), _meld_signature(melds))
@@ -117,9 +127,11 @@ def observation_stats(counts, melds, rules=None):
 
 
 def encode_observation(observation, rules=None):
+    # 输出 V1 float 特征 list，固定 shape=[FEATURE_SIZE]。
     rules = rules or default_backend
     if observation.get("melds") and observation["melds"] and observation["melds"][0] and not hasattr(observation["melds"][0][0], "tiles"):
         observation = expand_observation(observation)
+    # 依次拼接各特征块；所有计数特征都按每种牌最多4张归一化。
     values = []
     values.extend(_counts(observation["hand"]))
     visible = []
@@ -164,10 +176,12 @@ def encode_observation(observation, rules=None):
         (last_discard[1] + 1) / 34.0 if last_discard else 0.0,
         sum(wall_by_player) / 84.0,
     ])
+    # values 的布局必须与 FEATURE_SIZE 常量保持一致。
     return values
 
 
 def encode_action(action):
+    # 输出 shape=[ACTION_SIZE=8]；牌 id 使用 +1 后除以34，令缺失值 -1 映射为0。
     return [
         int(action.kind) / float(len(ActionType) - 1),
         (action.tile + 1) / 34.0,

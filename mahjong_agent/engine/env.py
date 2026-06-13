@@ -16,23 +16,28 @@ from mahjong_agent.rules.legality import action_allowed_in_claim, can_kong
 
 class MahjongEnv(object):
     def __init__(self, rules=None, min_fan=8):
+        # rules 提供 can_hu/fan/shanten 等接口；min_fan 是合法和牌最低番数。
         self.rules = rules or default_backend
         self.min_fan = min_fan
         self.reset()
 
     def reset(self, seed=None, wall=None, prevalent_wind=None):
+        # 使用局部 RNG，确保给定 seed 时不污染进程级随机状态。
         rng = random.Random(seed)
+        # wall 是 tile id[int] 列表；列表尾部视为下一张摸牌。
         self.wall = list(wall) if wall is not None else full_wall()
         if wall is None:
             rng.shuffle(self.wall)
         if len(self.wall) < 53:
             raise ValueError("wall must contain enough tiles to deal")
+        # 四家相关容器均按绝对座位 0..3 索引。
         self.hands = [[] for _ in range(4)]
         self.melds = [[] for _ in range(4)]
         self.discards = [[] for _ in range(4)]
         self.events = []
         self.current_player = 0
         self.prevalent_wind = (seed or 0) % 4 if prevalent_wind is None else int(prevalent_wind)
+        # phase 状态机：draw -> discard -> claim -> draw，终局为 terminal。
         self.phase = "draw"
         self.last_discard = None
         self.pending_claimers = []
@@ -46,6 +51,7 @@ class MahjongEnv(object):
         self.claim_hu_only = False
         self.pending_bugang = None
         self.invalid_actions = 0
+        # 轮流发牌，每家初始13张，然后庄家/当前玩家再摸一张。
         for _ in range(13):
             for player in range(4):
                 self.hands[player].append(self.wall.pop())
@@ -55,6 +61,7 @@ class MahjongEnv(object):
         return self.observe(0)
 
     def _draw(self):
+        # 摸空牌墙时直接流局，否则当前玩家手牌由13张变为14张。
         if not self.wall:
             self.terminal = True
             self.phase = "terminal"
@@ -68,10 +75,12 @@ class MahjongEnv(object):
         self.events.append(("DRAW", self.current_player))
 
     def _counts(self, player):
+        # 返回指定玩家的 34 维整数计数向量。
         counter = Counter(self.hands[player])
         return [counter.get(tile, 0) for tile in range(34)]
 
     def observe(self, player_id):
+        # 仅返回 player_id 可见的公开信息及自己的手牌；不泄漏其他玩家暗手。
         return {
             "player_id": player_id,
             "current_player": self.current_player,
@@ -90,10 +99,12 @@ class MahjongEnv(object):
         }
 
     def _claim_actions(self, player):
+        # last_discard 格式为 (source_player:int, tile:int)。
         source, tile = self.last_discard
         actions = [Action.pass_()]
         if player == source:
             return actions
+        # 判断荣和时，临时把被弃牌加入 34 维手牌计数。
         counts = self._counts(player)
         counts[tile] += 1
         if self.rules.can_hu(counts, self.melds[player], tile,
@@ -105,6 +116,7 @@ class MahjongEnv(object):
         hand_counts = self._counts(player)
         if not self.wall and hand_counts[tile] >= 2:
             return actions
+        # 碰后必须立即弃一张，因此每种可弃牌形成一个独立候选 Action。
         if hand_counts[tile] >= 2:
             remaining = list(self.hands[player])
             remaining.remove(tile)
@@ -113,6 +125,7 @@ class MahjongEnv(object):
                 actions.append(Action(ActionType.PENG, tile, (), discard))
         if hand_counts[tile] >= 3 and can_kong(not self.wall, len(self.wall)):
             actions.append(Action(ActionType.GANG, tile))
+        # 只有弃牌者下家可吃，且字牌不可组成顺子。
         if self.wall and player == (source + 1) % 4 and is_suited(tile):
             base = tile - tile % 9
             rank_index = tile % 9
@@ -127,11 +140,13 @@ class MahjongEnv(object):
         return actions
 
     def legal_actions(self, player_id=None):
+        # 返回 list[Action]；非当前玩家或终局状态没有合法动作。
         player = self.current_player if player_id is None else player_id
         if self.terminal or player != self.current_player:
             return []
         if self.phase == "claim":
             return self._claim_actions(player)
+        # discard 阶段默认可打出手中任意一种牌；相同牌只需一个候选动作。
         actions = [Action.play(tile) for tile in sorted(set(self.hands[player]))]
         counts = self._counts(player)
         if self.drawn_tile is not None and self.rules.can_hu(
@@ -148,18 +163,21 @@ class MahjongEnv(object):
         return actions
 
     def step(self, action):
+        # 用规范 key 验证动作，避免调用方伪造具有相同类型但非法参数的动作。
         legal = dict((item.key(), item) for item in self.legal_actions())
         if action.key() not in legal:
             self.invalid_actions += 1
             raise ValueError("illegal action: %r" % (action,))
         action = legal[action.key()]
         player = self.current_player
+        # 下列分支实现状态机迁移；step 最终返回动作玩家视角的 observation。
         if action.kind == ActionType.HU:
             if self.phase == "claim":
                 self._record_claim(action)
             else:
                 self._finish_hu(player, True)
         elif action.kind == ActionType.PLAY:
+            # 出牌后依次询问其余三家是否声明吃碰杠和。
             self.hands[player].remove(action.tile)
             self.discards[player].append(action.tile)
             self.last_discard = (player, action.tile)
@@ -175,6 +193,7 @@ class MahjongEnv(object):
         elif action.kind in (ActionType.CHI, ActionType.PENG):
             self._record_claim(action)
         elif action.kind == ActionType.GANG:
+            # claim 阶段的明杠要参与声明优先级；暗杠可立即成立并补牌。
             if self.phase == "claim":
                 self._record_claim(action)
                 return self.observe(player)
@@ -189,6 +208,7 @@ class MahjongEnv(object):
             self.about_kong = True
             self._draw()
         elif action.kind == ActionType.BUGANG:
+            # 补杠先进入只允许 HU/PASS 的抢杠声明阶段。
             tile = action.tile
             self.events.append(("BUGANG", player, tile))
             self.last_discard = (player, tile)
@@ -202,6 +222,7 @@ class MahjongEnv(object):
         return self.observe(player)
 
     def _fan_context(self, player, self_drawn):
+        # 组装规则后端所需的和牌上下文；visible 用于判断是否为绝张。
         tile = self.drawn_tile if self_drawn else (self.last_discard[1] if self.last_discard else -1)
         visible = sum(river.count(tile) for river in self.discards)
         for owner, melds in enumerate(self.melds):
@@ -216,6 +237,7 @@ class MahjongEnv(object):
                 "flower_count": 0}
 
     def _finish_hu(self, player, self_drawn):
+        # 自摸时手牌计数已含和牌；荣和时需临时加入最近弃牌。
         win_tile = self.drawn_tile if self_drawn else self.last_discard[1]
         counts = self._counts(player)
         if not self_drawn:
@@ -229,6 +251,7 @@ class MahjongEnv(object):
         self.events.append(("HU", player, self.loser, self.fan_count))
 
     def _record_claim(self, action):
+        # claim_responses: dict[player_id, Action]，收齐三家后统一按优先级裁决。
         self.claim_responses[self.current_player] = action
         remaining = [item for item in self.pending_claimers if item not in self.claim_responses]
         if remaining:
@@ -237,6 +260,7 @@ class MahjongEnv(object):
             self._resolve_claims()
 
     def _resolve_claims(self):
+        # 声明优先级为 HU > PENG/GANG > CHI；同类按 pending_claimers 座次顺序。
         source, tile = self.last_discard
         for kind in (ActionType.HU, ActionType.PENG, ActionType.GANG, ActionType.CHI):
             for player in self.pending_claimers:
@@ -252,6 +276,7 @@ class MahjongEnv(object):
                         len(self.wall)):
                     continue
                 if kind in (ActionType.CHI, ActionType.PENG):
+                    # 从暗手移除组成副露所需的牌，再执行动作携带的 discard。
                     required = list(action.sequence if kind == ActionType.CHI else (tile, tile, tile))
                     required.remove(tile)
                     for item in required:
@@ -277,6 +302,7 @@ class MahjongEnv(object):
                 self._draw()
                 return
         if self.pending_bugang is not None:
+            # 无人抢杠后，才把原碰牌升级为杠并摸补牌。
             player, tile = self.pending_bugang
             self.hands[player].remove(tile)
             index = next(i for i, meld in enumerate(self.melds[player])
@@ -290,6 +316,7 @@ class MahjongEnv(object):
             self.phase = "draw"
             self._draw()
             return
+        # 所有人 PASS：轮到弃牌者下家摸牌。
         self.current_player = (source + 1) % 4
         self.last_discard = None
         self.phase = "draw"
@@ -301,6 +328,7 @@ class MahjongEnv(object):
         return self.terminal
 
     def result(self):
+        # scores 是长度4的整数列表，和为0；按国标麻将基础分结算。
         scores = [0, 0, 0, 0]
         if self.winner is not None:
             fan = max(self.min_fan, self.fan_count)
@@ -323,6 +351,7 @@ class MahjongEnv(object):
 
     def full_state(self):
         """Privileged training labels; never returned by ``observe``."""
+        # 该接口含所有暗手和牌墙统计，只能用于训练标签，不能输入策略模型。
         return {
             "hands": [list(hand) for hand in self.hands],
             "wall_counts": dict(Counter(self.wall)),

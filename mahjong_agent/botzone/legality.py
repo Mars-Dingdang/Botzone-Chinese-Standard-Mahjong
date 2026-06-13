@@ -9,6 +9,7 @@ from mahjong_agent.rules.legality import can_kong
 
 
 def hu_context(state, self_drawn):
+    # state 是 ProtocolState；返回 MahjongGB 严格和牌计算所需的上下文 dict。
     tile = state.drawn_tile if self_drawn else (
         state.last_discard[1] if state.last_discard else -1)
     visible = sum(river.count(tile) for river in state.discards) if tile >= 0 else 0
@@ -31,9 +32,11 @@ def hu_context(state, self_drawn):
 
 
 def _strict_can_hu(state, tile, self_drawn):
+    # 无官方 MahjongGB 时宁可禁止 HU，避免 Botzone 输出无法证明合法的动作。
     rules = default_backend
     if not rules.has_official or tile is None or tile < 0:
         return False
+    # counts shape=[34]，表示当前玩家暗手中各牌数量。
     counts = [state.hand.count(item) for item in range(34)]
     if not self_drawn:
         counts[tile] += 1
@@ -43,10 +46,12 @@ def _strict_can_hu(state, tile, self_drawn):
 
 
 def strict_legal_actions(state):
+    # 返回 list[Action]，只包含可安全提交给 Botzone 的严格合法动作。
     hand = list(state.hand)
     if state.phase == "ack":
         return [Action.pass_()]
     if state.phase == "discard":
+        # 自己摸牌后的决策：打牌、和牌、暗杠或补杠。
         actions = [Action.play(tile) for tile in sorted(set(hand))]
         if _strict_can_hu(state, state.drawn_tile, True):
             actions.append(Action.hu())
@@ -60,6 +65,7 @@ def strict_legal_actions(state):
                 if meld.kind == ActionType.PENG and counts[meld.tiles[0]] > 0)
         return actions
 
+    # claim 阶段至少始终允许 PASS。
     actions = [Action.pass_()]
     if not state.last_discard:
         return actions
@@ -92,10 +98,12 @@ def strict_legal_actions(state):
                     remaining.remove(item)
                 actions.extend(Action(ActionType.CHI, tile, sequence, discard)
                                for discard in sorted(set(remaining)))
+    # 用规范 action key 去重，同时保持首次出现的顺序。
     return list(dict((action.key(), action) for action in actions).values())
 
 
 def validate_action(state, action):
+    # 返回 (is_valid:bool, reason:str)，便于上层记录动作被修正的原因。
     legal = dict((item.key(), item) for item in strict_legal_actions(state))
     if action.key() in legal:
         return True, "legal"
@@ -112,6 +120,7 @@ def validate_action(state, action):
 
 
 def sanitize_action(state, proposed):
+    # 非法提案在 claim 阶段回退为 PASS，在 discard 阶段回退为启发式合法打牌。
     valid, reason = validate_action(state, proposed)
     if valid:
         return proposed, None
@@ -129,6 +138,7 @@ def sanitize_action(state, proposed):
 
 
 def response_to_action(state, response):
+    # response 是 Botzone 输出字符串；解析为内部不可变 Action。
     parts = response.strip().split()
     if not parts:
         raise ValueError("empty response")

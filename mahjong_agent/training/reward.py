@@ -6,6 +6,7 @@ from mahjong_agent.policies.analysis import action_deal_in_risk, hand_potential
 
 
 def public_potential(observation, coefficients=None, action=None):
+    # 返回 (加权总势能:float, 分项指标:dict[str,float])。
     coefficients = coefficients or {}
     potential = hand_potential(observation, action)
     fan_feasibility = (
@@ -32,12 +33,14 @@ def public_potential(observation, coefficients=None, action=None):
 
 def shaped_rewards(potentials, terminal_reward, gamma=0.99, step_cap=0.1,
                    episode_cap=1.0):
+    # potentials 每项为 (potential_value, detail_dict)，输出与轨迹等长的奖励和分项。
     rewards = [0.0] * len(potentials)
     components = []
     running = 0.0
     for index, (current, detail) in enumerate(potentials):
         following = potentials[index + 1][0] if index + 1 < len(potentials) else 0.0
         immediate = float(detail.get("action_risk_reward", 0.0))
+        # 先限制单步塑形幅度，再限制整局累计塑形幅度。
         value = max(-step_cap, min(step_cap, gamma * following - current + immediate))
         value = max(-episode_cap - running, min(episode_cap - running, value))
         running += value

@@ -10,6 +10,7 @@ class RandomPolicy(object):
         self.rng = random.Random(seed)
 
     def act(self, observation, legal_actions):
+        # observation 未参与随机策略；从调用方已验证的合法动作中均匀采样。
         if not legal_actions:
             raise ValueError("no legal actions")
         return self.rng.choice(legal_actions)
@@ -26,6 +27,7 @@ class HeuristicPolicy(object):
         return simulate_action(observation, action)
 
     def _score(self, observation, action):
+        # 返回可比较 float：优先合法8番等待，其次向听效率和牌型潜力。
         potential = hand_potential(observation, action, self.rules)
         meld_penalty = 0.25 if action.kind in (ActionType.CHI, ActionType.PENG) else 0.0
         # Ordering is intentional: legal 8-fan waits, efficiency, then structure.
@@ -36,6 +38,7 @@ class HeuristicPolicy(object):
                 potential["fan_structure"] - meld_penalty)
 
     def act(self, observation, legal_actions):
+        # 合法 HU 永远优先；否则以 (分数, action key) 稳定打破平局。
         for action in legal_actions:
             if action.kind == ActionType.HU:
                 return action

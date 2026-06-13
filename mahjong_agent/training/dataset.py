@@ -8,6 +8,7 @@ from mahjong_agent.features import (deserialize_action, encode_action,
 
 
 def record_to_json(record):
+    # 将 rollout 记录转成 V1 行记录：features:[F]、actions:[A,8]、target:int。
     legal = record["legal_actions"]
     action_key = record["action"].key()
     return {
@@ -18,6 +19,7 @@ def record_to_json(record):
 
 
 def load_jsonl(path):
+    # 小数据集便捷加载器：一次性读入 list[dict]。
     records = []
     with open(path, "r") as handle:
         for line in handle:
@@ -26,6 +28,7 @@ def load_jsonl(path):
 
 
 def iter_jsonl_shards(path, pattern="*.jsonl", rank=0, world_size=1):
+    # 按全局记录序号取模分配给不同 rank，流式产出 dict。
     paths = sorted(glob.glob(os.path.join(path, pattern))) if os.path.isdir(path) else [path]
     index = 0
     for shard in paths:
@@ -37,6 +40,7 @@ def iter_jsonl_shards(path, pattern="*.jsonl", rank=0, world_size=1):
 
 
 def parquet_shard_plan(path, split, world_size):
+    # 统计每个 parquet 中目标 split 的样本数，并贪心平衡到各 rank。
     import pyarrow.compute as pc
     import pyarrow.parquet as pq
     paths = sorted(glob.glob(os.path.join(path, "*.parquet")))
@@ -55,6 +59,7 @@ def parquet_shard_plan(path, split, world_size):
 
 
 def iter_parquet_shards(path, pattern="*.parquet", rank=0, world_size=1, split=None):
+    # 兼容已编码记录和仍保存 observation/actions_raw 的原始记录。
     import pyarrow.parquet as pq
     if split is not None and world_size > 1:
         paths = parquet_shard_plan(path, split, world_size)[0][rank]
@@ -75,6 +80,7 @@ def iter_parquet_shards(path, pattern="*.parquet", rank=0, world_size=1, split=N
 
 
 def iter_records(path, rank=0, world_size=1, split=None):
+    # 数据目录存在 parquet 时优先使用，否则退回 jsonl。
     if os.path.isdir(path) and glob.glob(os.path.join(path, "*.parquet")):
         return iter_parquet_shards(path, rank=rank, world_size=world_size, split=split)
     pattern = (split + "-*.jsonl") if split else "*.jsonl"
@@ -82,6 +88,7 @@ def iter_records(path, rank=0, world_size=1, split=None):
 
 
 def tensor_shard_plan(path, split, world_size, batch_size, seed=0, epoch=0):
+    # 返回每个 rank 的 shard 元数据列表及其可形成的完整 batch 数。
     import random
     with open(os.path.join(path, "tensor_metadata.json")) as handle:
         entries = [item for item in json.load(handle)["shards"] if item["split"] == split]
@@ -102,6 +109,7 @@ def tensor_shard_plan(path, split, world_size, batch_size, seed=0, epoch=0):
 
 def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps=0,
                         seed=0, epoch=0, shuffle=False):
+    # 直接加载预张量化 shard，跨 shard 使用 carry 拼成完整 batch。
     import torch
     assignments, _ = tensor_shard_plan(path, split, world_size, batch_size, seed, epoch)
     yielded = 0
@@ -114,6 +122,7 @@ def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps
                 "features", "feature_masks", "actions", "action_token_masks",
                 "masks", "targets", "aux_labels", "fan_targets", "belief_targets")
                 if key in payload)
+        # current 是同样首维 N 的 tensor tuple；具体键取决于 V1/V2 数据版本。
         current = tuple(payload[key] for key in keys)
         if shuffle:
             generator = torch.Generator()
@@ -122,6 +131,7 @@ def iter_tensor_batches(path, split, batch_size, rank=0, world_size=1, max_steps
             current = tuple(value[order] for value in current)
         if carry is not None:
             current = tuple(torch.cat((left, right), dim=0) for left, right in zip(carry, current))
+        # 只 yield 完整 batch，尾部不足部分留给下一 shard。
         full = current[0].size(0) // batch_size
         for index in range(full):
             start = index * batch_size
@@ -137,6 +147,9 @@ def has_tensor_cache(path):
 
 
 def collate_records(records, torch):
+    # V2 返回九个 tensor：
+    # features[B,256,12]、feature_masks[B,256]、actions[B,A,4,12]、
+    # action_token_masks[B,A,4]、masks[B,A]、targets[B] 及三类辅助标签。
     if records and "feature_mask" in records[0]:
         return (
             torch.tensor([record["features"] for record in records], dtype=torch.float32),
@@ -149,6 +162,7 @@ def collate_records(records, torch):
             torch.tensor([record.get("fan_target", 0) for record in records], dtype=torch.long),
             torch.tensor([record.get("belief_targets", [[0] * 34] * 3) for record in records], dtype=torch.long),
         )
+    # V1 将变长候选动作 padding 到 batch 最大 A。
     max_actions = max(len(record["actions"]) for record in records)
     action_size = len(records[0]["actions"][0])
     features = []
@@ -161,6 +175,7 @@ def collate_records(records, torch):
         actions.append(record["actions"] + [[0.0] * action_size] * (max_actions - count))
         masks.append([1] * count + [0] * (max_actions - count))
         targets.append(record["target"])
+    # V1 输出 shapes：[B,F]、[B,A,8]、[B,A]、[B]。
     return (
         torch.tensor(features, dtype=torch.float32),
         torch.tensor(actions, dtype=torch.float32),

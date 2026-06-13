@@ -9,17 +9,21 @@ class ModelPolicy(object):
             import torch
         except ImportError as exc:
             raise ImportError("ModelPolicy requires PyTorch") from exc
+        # model 是 V1 HybridTransformer 或 V2 TokenTransformer；stochastic 控制采样/贪心。
         self.torch = torch
         self.model = model
         self.stochastic = stochastic
         self.model.eval()
 
     def act(self, observation, legal_actions):
+        # 单局接口复用 batch_act，返回一个 Action。
         return self.batch_act([observation], [legal_actions])[0]
 
     def batch_act(self, observations, legal_actions_batch):
+        # observations 长度为 B；legal_actions_batch 每行是长度可变的 list[Action]。
         if not observations:
             return []
+        # 合法动作含 HU 时直接和牌，不进入神经网络。
         forced = {}
         pending = []
         for row, legal_actions in enumerate(legal_actions_batch):
@@ -36,12 +40,15 @@ class ModelPolicy(object):
         torch = self.torch
         self.model.eval()
         device = next(self.model.parameters()).device
+        # 推理不构建梯度图；device 跟随模型参数。
         with torch.no_grad():
             version_owner = getattr(self.model, "module", self.model)
             if int(getattr(version_owner, "feature_version", 1)) == 2:
+                # V2 features: [B,256,12]；actions padding 后为 [B,A,4,12]。
                 encoded_features = [encode_observation_v2(observations[row]) for row in pending]
                 encoded_actions = [[encode_action_v2(action) for action in legal_actions_batch[row]]
                                    for row in pending]
+                # A 是当前 batch 中最大的合法动作数，较短行以全零动作 padding。
                 maximum = max(len(items) for items in encoded_actions)
                 zero_action = [[0.0] * 12 for _ in range(4)]
                 actions, action_token_mask, action_mask = [], [], []
@@ -62,6 +69,7 @@ class ModelPolicy(object):
                     action_token_mask=torch.tensor(
                         action_token_mask, dtype=torch.bool, device=device))
             else:
+                # V1 features: [B,FEATURE_SIZE]；actions: [B,A,ACTION_SIZE]。
                 features = torch.tensor(
                     [encode_observation(observations[row]) for row in pending],
                     dtype=torch.float32, device=device)
@@ -76,6 +84,7 @@ class ModelPolicy(object):
                 output = self.model(
                     features, torch.tensor(encoded, dtype=torch.float32, device=device),
                     torch.tensor(masks, dtype=torch.bool, device=device))
+            # logits shape=[待决策局数,A]；mask 已保证不会选到 padding 动作。
             logits = output["logits"]
             if self.stochastic:
                 indices = torch.distributions.Categorical(logits=logits).sample().tolist()

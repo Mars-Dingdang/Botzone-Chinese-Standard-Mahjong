@@ -7,12 +7,14 @@ from mahjong_agent.features.token_encoder import TOKEN_SIZE
 
 
 class TokenTransformer(nn.Module):
+    # 版本字段会写入 checkpoint，用于阻止错误架构之间互相加载权重。
     feature_version = 2
     architecture_version = 3
 
     def __init__(self, token_size=TOKEN_SIZE, d_model=192, layers=4, heads=6,
                  dropout=0.1, belief_mode="aux", auxiliary_logit_fusion=True):
         super(TokenTransformer, self).__init__()
+        # token_size=12；d_model 是每个 token 投影后的隐藏维度。
         self.token_size = token_size
         self.d_model = d_model
         self.belief_mode = belief_mode
@@ -22,16 +24,20 @@ class TokenTransformer(nn.Module):
             "heads": heads, "dropout": dropout, "belief_mode": belief_mode,
             "auxiliary_logit_fusion": auxiliary_logit_fusion,
         }
+        # 连续特征线性投影：[B,S,12] -> [B,S,D]。
         self.state_encoder = nn.Linear(token_size, d_model)
         self.action_encoder = nn.Linear(token_size, d_model)
+        # 将 token 前四个离散字段分别查表后，与连续投影相加。
         self.kind_embedding = nn.Embedding(16, d_model)
         self.tile_embedding = nn.Embedding(36, d_model)
         self.player_embedding = nn.Embedding(8, d_model)
         self.action_embedding = nn.Embedding(16, d_model)
+        # PyTorch Transformer 默认序列优先，后续 forward 会在 [B,S,D]/[S,B,D] 间转置。
         layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=heads, dim_feedforward=d_model * 4,
             dropout=dropout)
         self.transformer = nn.TransformerEncoder(layer, layers)
+        # 每个候选动作使用 [全局状态, 动作表示, 两者逐元素乘积]，故为 3D。
         interaction_size = d_model * 3
         self.family_head = nn.Sequential(
             nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, 7))
@@ -42,12 +48,14 @@ class TokenTransformer(nn.Module):
         self.auxiliary_logit_gate = nn.Parameter(torch.zeros(5))
         self.value_head = nn.Sequential(
             nn.Linear(d_model, d_model), nn.ReLU(), nn.Linear(d_model, 1))
+        # 四维 outcome 依次预测：获胜、放铳、得分、达到 8 番。
         self.outcome_head = nn.Linear(d_model, 4)  # win, deal-in, score, 8-fan
         self.fan_head = nn.Linear(d_model, 5)
         self.belief_head = nn.Linear(d_model, 3 * 34 * 5)
         self.belief_adapter = nn.Linear(3 * 34 * 5, d_model)
 
     def _embed(self, tokens, encoder):
+        # tokens shape 可为 [B,S,12] 或 [B,A,T,12]；输出末维统一为 D。
         continuous = encoder(tokens)
         return (continuous
                 + self.kind_embedding(tokens[..., 0].long().clamp(0, 15))
@@ -57,34 +65,42 @@ class TokenTransformer(nn.Module):
 
     def forward(self, features, actions, action_mask=None, feature_mask=None,
                 action_token_mask=None):
+        # features: [B,256,12]；actions: [B,A,4,12]，A 为 batch 内最大合法动作数。
+        # feature_mask: [B,256]；action_token_mask: [B,A,4]；action_mask: [B,A]。
         state_tokens = self._embed(features, self.state_encoder)
         encoded = self.transformer(
             state_tokens.transpose(0, 1),
             src_key_padding_mask=(feature_mask == 0) if feature_mask is not None else None,
         ).transpose(0, 1)
+        # 对状态 token 做 masked mean pooling，得到每局一个 state: [B,D]。
         if feature_mask is None:
             state = encoded.mean(1)
         else:
             weight = feature_mask.float().unsqueeze(-1)
             state = (encoded * weight).sum(1) / weight.sum(1).clamp_min(1.0)
+        # belief logits: [B,3,34,5]，表示三名对手每种牌持有 0..4 张的分类分布。
         initial_belief = self.belief_head(state).view(-1, 3, 34, 5)
         if self.belief_mode == "actor":
             probabilities = initial_belief.softmax(-1).detach()
             state = state + self.belief_adapter(probabilities.reshape(state.size(0), -1))
+        # action_encoded: [B,A,4,D]；pool 后 action_state: [B,A,D]。
         action_encoded = self._embed(actions, self.action_encoder)
         if action_token_mask is None:
             action_state = action_encoded.mean(2)
         else:
             weight = action_token_mask.float().unsqueeze(-1)
             action_state = (action_encoded * weight).sum(2) / weight.sum(2).clamp_min(1.0)
+        # 将全局状态广播到每个候选动作，interaction shape=[B,A,3D]。
         expanded = state.unsqueeze(1).expand_as(action_state)
         interaction = torch.cat((expanded, action_state, expanded * action_state), -1)
+        # 第一个动作 token 的第 3 字段存动作种类（编码时 +1），还原为 0..6。
         action_kinds = actions[:, :, 0, 3].long().sub(1).clamp(0, 6)
         family_scores = self.family_head(state)
         family_logits = family_scores.gather(1, action_kinds)
         tactical_logits = self.tactical_head(interaction).squeeze(-1)
         action_outcome = self.action_outcome_head(interaction)
         action_fan_logits = self.action_fan_head(interaction)
+        # logits shape=[B,A]，随后可融合辅助任务预测作为动作打分修正。
         logits = family_logits + tactical_logits
         if self.auxiliary_logit_fusion:
             fan_values = torch.arange(5, device=actions.device, dtype=action_fan_logits.dtype)
@@ -94,8 +110,10 @@ class TokenTransformer(nn.Module):
                 action_outcome[..., 2], action_outcome[..., 3], expected_fan), -1)
             logits = logits + (auxiliary * self.auxiliary_logit_gate).sum(-1)
         if action_mask is not None:
+            # padding 动作设为极小 logit，使 softmax 后概率近似为 0。
             logits = logits.masked_fill(action_mask == 0, -1e4)
         outcome = self.outcome_head(state)
+        # 所有返回 tensor 的首维均为 batch B；动作相关输出额外包含候选动作维 A。
         return {
             "logits": logits, "value": self.value_head(state).squeeze(-1),
             "aux": outcome, "outcome": outcome, "fan_logits": self.fan_head(state),

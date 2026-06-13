@@ -9,6 +9,7 @@ from mahjong_agent.rules import default_backend
 
 def play_episode(policies, seed=None, wall=None, prevalent_wind=None,
                  max_steps=512, collect=False):
+    # policies 是长度4的策略列表；返回 (result:dict, trajectory:list[dict])。
     env = MahjongEnv()
     env.reset(seed=seed, wall=wall, prevalent_wind=prevalent_wind)
     trajectory = []
@@ -17,6 +18,7 @@ def play_episode(policies, seed=None, wall=None, prevalent_wind=None,
     action_counts_by_player = [Counter() for _ in range(4)]
     latencies = []
     latencies_by_player = [[] for _ in range(4)]
+    # 每次循环推进一个合法决策，而不一定是一次完整摸打回合。
     while not env.is_terminal() and steps < max_steps:
         player = env.current_player
         observation = env.observe(player)
@@ -29,6 +31,7 @@ def play_episode(policies, seed=None, wall=None, prevalent_wind=None,
         action_counts[action.kind.name] += 1
         action_counts_by_player[player][action.kind.name] += 1
         if collect:
+            # privileged_hands 仅作监督标签，不能作为策略 observation。
             trajectory.append({
                 "player": player,
                 "observation": observation,
@@ -69,7 +72,9 @@ def play_episodes_vectorized(policy_sets, seeds=None, max_steps=512, collect=Fal
         env = MahjongEnv()
         env.reset(seed=seed)
         envs.append(env)
+    # 同一轮中按 policy 对待决策环境分组，使支持 batch_act 的策略批量推理。
     while True:
+        # pending[id(policy)] 保存共享同一策略对象的所有环境决策。
         pending = {}
         active = False
         for index, (env, policies) in enumerate(zip(envs, policy_sets)):
@@ -95,6 +100,7 @@ def play_episodes_vectorized(policy_sets, seeds=None, max_steps=512, collect=Fal
             else:
                 chosen = [policy.act(item[2], item[3]) for item in items]
             elapsed = time.time() - started
+            # 批次总耗时平均分摊到每个动作，供评估延迟统计。
             per_action = elapsed / max(1, len(items))
             for (index, player, observation, legal), action in zip(items, chosen):
                 env = envs[index]

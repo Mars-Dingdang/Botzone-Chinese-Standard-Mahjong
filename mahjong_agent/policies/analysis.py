@@ -7,6 +7,7 @@ from mahjong_agent.rules import default_backend
 
 
 def visible_tiles(observation):
+    # 返回 Counter[tile_id -> 公开可见张数]，不含自己的暗手。
     visible = Counter(tile for river in observation["discards"] for tile in river)
     for melds in observation["melds"]:
         for meld in melds:
@@ -15,6 +16,7 @@ def visible_tiles(observation):
 
 
 def simulate_action(observation, action):
+    # 在复制出的 hand:list[int] 与 melds:list[Meld] 上模拟，不修改原 observation。
     player = observation["player_id"]
     hand = list(observation["hand"])
     melds = list(observation["melds"][player])
@@ -52,9 +54,11 @@ def simulate_action(observation, action):
 
 
 def hand_potential(observation, action=None, rules=None):
+    # 使用公开信息估计动作后的向听数、有效牌余量和番种结构潜力。
     rules = rules or default_backend
     hand, melds = simulate_action(observation, action)
     counter = Counter(hand)
+    # counts shape=[34]；remaining 只为有效牌记录尚未可见的估计张数。
     counts = [counter.get(tile, 0) for tile in range(34)]
     shanten = rules.shanten(counts, melds)
     useful = rules.useful_tiles(counts, melds)
@@ -63,6 +67,7 @@ def hand_potential(observation, action=None, rules=None):
     useful_remaining = sum(remaining.values())
     legal_waits = 0
     expected_fan = 0.0
+    # 听牌时逐种有效牌计算是否达到最低8番，并按剩余张数加权。
     if shanten == 0:
         for tile in useful:
             work = list(counts)
@@ -86,6 +91,7 @@ def hand_potential(observation, action=None, rules=None):
     concentration = max(suited) - (sum(suited) - max(suited)) * 0.25
     structure = (float(not melds) + triplets * 0.7 + pairs * 0.15 +
                  concentration * 0.08 + honors * 0.12 + terminals * 0.04)
+    # 返回值均只依赖公开信息，可安全用于策略输入或奖励塑形。
     return {
         "shanten": shanten, "useful_remaining": useful_remaining,
         "qualifying_waits": legal_waits, "expected_fan": expected_fan,
@@ -94,6 +100,7 @@ def hand_potential(observation, action=None, rules=None):
 
 
 def action_discard(action):
+    # 返回动作最终会打出的 tile id；不产生弃牌的动作返回 -1。
     if action is None:
         return -1
     if action.kind == ActionType.PLAY:
@@ -111,6 +118,7 @@ def action_deal_in_risk(observation, action):
     visible = visible_tiles(observation)
     visible.update(observation["hand"])
     player = observation["player_id"]
+    # 分别估计三名对手的风险，最后取最危险者。
     risks = []
     for opponent in range(4):
         if opponent == player:
@@ -133,6 +141,7 @@ def action_deal_in_risk(observation, action):
 
 
 def direct_deal_in_index(records, result, learner_seat):
+    # 若学习者放铳，逆序寻找其轨迹中最后一次实际弃牌的位置。
     if result["loser"] != learner_seat:
         return -1
     return next((index for index in range(len(records) - 1, -1, -1)
