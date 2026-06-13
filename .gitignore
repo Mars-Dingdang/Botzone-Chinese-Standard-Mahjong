@@ -12,6 +12,8 @@ artifacts/official_bc_full_v2/
 artifacts/official_bc_full_v2_tensors/
 artifacts/official_bc_full_v3/
 artifacts/official_bc_full_v3_tensors/
+artifacts/official_bc_v4/
+artifacts/official_bc_v4_tensors/
 Chinese-Standard-Mahjong/
 artifacts/ppo_model.pt
 artifacts/ppo_model.pt.json

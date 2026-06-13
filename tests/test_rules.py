@@ -46,6 +46,19 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(rules.fan(counts, win_tile=0, context={}), 2)
 
 
+    def test_official_fan_accepts_pymahjonggb_two_field_entries(self):
+        rules = RulesBackend()
+        rules.has_official = True
+        rules.official_fan_calculator = mock.Mock(
+            return_value=((4, "不求人"), (2, "圈风刻"), (2, "门风刻")))
+        counts = [0] * 34
+        counts[0] = 1
+        context = {"player_id": 0, "seat_wind": 0, "prevalent_wind": 0}
+        self.assertEqual(rules.fan(counts, win_tile=0, context=context), 8)
+        self.assertTrue(rules.strict_can_hu(
+            counts, win_tile=0, context=context, min_fan=8))
+
+
     def test_strict_hu_rejects_if_any_chi_offer_is_below_minimum(self):
         rules = RulesBackend()
         rules.has_official = True

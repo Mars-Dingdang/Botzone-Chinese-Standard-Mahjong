@@ -61,6 +61,12 @@ def _pack_variants(melds, player_id):
     return product(*choices) if choices else ((),)
 
 
+def _fan_total(result):
+    """Support both PyMahjongGB's 2-field and Botzone's 4-field fan entries."""
+    return sum(int(item[0]) * (int(item[1]) if not isinstance(item[1], str) else 1)
+               for item in result)
+
+
 class RulesBackend(object):
     def __init__(self):
         try:
@@ -97,7 +103,7 @@ class RulesBackend(object):
                         int(context.get("prevalent_wind", 0)),
                         verbose=False,
                     )
-                    totals.append(sum(item[0] * item[1] for item in result))
+                    totals.append(_fan_total(result))
                 return min(totals)
             except Exception:
                 # Keep local simulation usable if a third-party package exposes
@@ -133,7 +139,7 @@ class RulesBackend(object):
                     int(context.get("prevalent_wind", 0)),
                     verbose=False,
                 )
-                totals.append(sum(item[0] * item[1] for item in result))
+                totals.append(_fan_total(result))
             return bool(totals) and min(totals) >= min_fan
         except Exception:
             return False

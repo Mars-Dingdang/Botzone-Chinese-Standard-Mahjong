@@ -220,7 +220,7 @@ python scripts/export_bot.py \
   --storage-model artifacts/botzone_model.pt
 
 python scripts/export_bot.py \
-  --model artifacts/runs/20260611-210636/bc_model.best.pt \
+  --model artifacts/runs/20260612-235858/bc_model.best.pt \
   --output artifacts/botzone_submission_bc.zip \
   --storage-model artifacts/botzone_model_bc.pt
 ```
