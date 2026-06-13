@@ -52,10 +52,11 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
             module.eval()
     # batch 内所有 tensor 首维均为样本数 N。
     sample_count = batch["features"].size(0)
+    device = next(model.parameters()).device
     distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
     if distributed:
         # 多 rank 统一裁剪到最小样本数，防止 collective 操作因步数不同而挂起。
-        shared_count = torch.tensor([sample_count], device=batch["features"].device)
+        shared_count = torch.tensor([sample_count], device=device)
         torch.distributed.all_reduce(shared_count, op=torch.distributed.ReduceOp.MIN)
         sample_count = int(shared_count.item())
         for key, value in list(batch.items()):
@@ -67,22 +68,22 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
     completed_epochs = 0
     # 每个 epoch 打乱样本，再按 minibatch 执行 PPO 更新。
     for _ in range(epochs):
-        order = torch.randperm(sample_count, device=batch["features"].device)
+        order = torch.randperm(sample_count)
         epoch_kl = 0.0
         epoch_updates = 0
         for start in range(0, sample_count, minibatch_size):
             index = order[start:start + minibatch_size]
-            features = batch["features"][index]
-            actions = batch["actions"][index]
-            masks = batch["masks"][index]
-            chosen = batch["chosen"][index]
-            old_log_probs = batch["old_log_probs"][index]
-            advantages = batch["advantages"][index]
-            returns = batch["returns"][index]
+            features = batch["features"][index].to(device)
+            actions = batch["actions"][index].to(device)
+            masks = batch["masks"][index].to(device)
+            chosen = batch["chosen"][index].to(device)
+            old_log_probs = batch["old_log_probs"][index].to(device)
+            advantages = batch["advantages"][index].to(device)
+            returns = batch["returns"][index].to(device)
             kwargs = {}
             if batch.get("feature_masks") is not None:
-                kwargs["feature_mask"] = batch["feature_masks"][index]
-                kwargs["action_token_mask"] = batch["action_token_masks"][index]
+                kwargs["feature_mask"] = batch["feature_masks"][index].to(device)
+                kwargs["action_token_mask"] = batch["action_token_masks"][index].to(device)
             output = model(features, actions, masks, **kwargs)
             # logits shape=[M,A]；chosen shape=[M]，M 为当前 minibatch 大小。
             distribution = torch.distributions.Categorical(logits=output["logits"])
@@ -97,30 +98,32 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
             clip_fraction = ((ratio - 1.0).abs() > clip_ratio).float().mean()
             bc_kl = torch.zeros((), device=features.device)
             if batch.get("reference_logits") is not None and bc_kl_coef:
-                reference = torch.distributions.Categorical(logits=batch["reference_logits"][index])
+                reference = torch.distributions.Categorical(
+                    logits=batch["reference_logits"][index].to(device))
                 bc_kl = torch.distributions.kl_divergence(reference, distribution).mean()
             aux_loss = torch.zeros((), device=features.device)
             if batch.get("aux_labels") is not None and "outcome" in output:
                 # aux_labels shape=[M,4]；belief_targets shape=[M,3,34]，类别为0..4。
-                labels = batch["aux_labels"][index]
+                labels = batch["aux_labels"][index].to(device)
                 binary = torch.nn.functional.binary_cross_entropy_with_logits(
                     output["outcome"][:, [0, 1, 3]], labels[:, [0, 1, 3]],
                     pos_weight=torch.tensor(
                         [1.0, deal_in_pos_weight, 1.0], device=features.device))
                 score = torch.nn.functional.mse_loss(output["outcome"][:, 2], labels[:, 2])
                 fan = torch.nn.functional.cross_entropy(
-                    output["fan_logits"], batch["fan_targets"][index])
+                    output["fan_logits"], batch["fan_targets"][index].to(device))
                 belief = torch.nn.functional.cross_entropy(
                     output["belief_logits"].reshape(-1, 5),
-                    batch["belief_targets"][index].reshape(-1))
+                    batch["belief_targets"][index].to(device).reshape(-1))
                 values = torch.arange(5, device=features.device).float()
                 expected = (output["belief_logits"].softmax(-1) * values).sum(-1)
                 constraint = torch.nn.functional.mse_loss(
                     expected.sum(-1) / 14.0,
-                    batch["belief_targets"][index].float().sum(-1) / 14.0)
+                    batch["belief_targets"][index].to(device).float().sum(-1) / 14.0)
                 chosen_outcome = output["action_outcome"][
                     torch.arange(len(index), device=features.device), chosen]
-                action_labels = batch.get("action_aux_labels", batch["aux_labels"])[index]
+                action_labels = batch.get(
+                    "action_aux_labels", batch["aux_labels"])[index].to(device)
                 action_binary = torch.nn.functional.binary_cross_entropy_with_logits(
                     chosen_outcome[:, [0, 1, 3]], action_labels[:, [0, 1, 3]],
                     pos_weight=torch.tensor(
@@ -130,7 +133,7 @@ def ppo_update(model, optimizer, batch, clip_ratio=0.2, value_coef=0.5,
                 action_fan = torch.nn.functional.cross_entropy(
                     output["action_fan_logits"][
                         torch.arange(len(index), device=features.device), chosen],
-                    batch["fan_targets"][index])
+                    batch["fan_targets"][index].to(device))
                 aux_loss = (binary + score + fan + belief + .01 * constraint +
                             action_binary + action_score + action_fan)
             loss = (policy_loss + value_coef * value_loss - entropy_coef * entropy

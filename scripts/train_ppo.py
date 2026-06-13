@@ -38,6 +38,30 @@ def jsonl(path, value):
         handle.write(json.dumps(value, sort_keys=True) + "\n")
 
 
+def policy_targets_in_chunks(model, reference, batch, device, chunk_size):
+    """Compute frozen PPO/reference targets without keeping the rollout batch on GPU."""
+    old_log_probs = []
+    reference_logits = []
+    with torch.no_grad():
+        model.eval()
+        for start in range(0, batch["features"].size(0), chunk_size):
+            stop = start + chunk_size
+            features = batch["features"][start:stop].to(device)
+            actions = batch["actions"][start:stop].to(device)
+            masks = batch["masks"][start:stop].to(device)
+            feature_masks = batch["feature_masks"][start:stop].to(device)
+            action_token_masks = batch["action_token_masks"][start:stop].to(device)
+            chosen = batch["chosen"][start:stop].to(device)
+            old = model(features, actions, masks, feature_masks, action_token_masks)
+            old_log_probs.append(torch.distributions.Categorical(
+                logits=old["logits"]).log_prob(chosen).cpu())
+            del old
+            ref = reference(features, actions, masks, feature_masks, action_token_masks)
+            reference_logits.append(ref["logits"].cpu())
+            del ref
+    return torch.cat(old_log_probs), torch.cat(reference_logits)
+
+
 def padded_record(record, result, learner_seat, direct_deal_in=False, max_actions=64):
     features, feature_mask = encode_observation_v2(record["observation"])
     encoded = [encode_action_v2(action) for action in record["legal_actions"]]
@@ -183,7 +207,7 @@ def main():
     parser.add_argument("--clip-ratio", type=float, default=cfg.get("clip_ratio", .2))
     parser.add_argument("--value-coef", type=float, default=cfg.get("value_coef", .5))
     parser.add_argument("--entropy-coef", type=float, default=cfg.get("entropy_coef", .01))
-    parser.add_argument("--minibatch-size", type=int, default=1024)
+    parser.add_argument("--minibatch-size", type=int, default=cfg.get("minibatch_size", 128))
     parser.add_argument("--reward-mode", choices=("terminal_only", "shaped"),
                         default=reward_cfg.get("mode", "shaped"))
     parser.add_argument("--score-scale", type=float, default=reward_cfg.get("score_scale", 64.0))
@@ -333,21 +357,16 @@ def main():
         batch_values = collate_records(records, torch)
         keys = ("features", "feature_masks", "actions", "action_token_masks", "masks",
                 "chosen", "aux_labels", "fan_targets", "belief_targets")
-        batch = {key: value.to(device) for key, value in zip(keys, batch_values)}
+        # Keep the complete rollout batch on CPU. Only bounded chunks/minibatches
+        # are moved to GPU to avoid memory growing with games_per_update.
+        batch = {key: value for key, value in zip(keys, batch_values)}
         batch["action_aux_labels"] = torch.tensor(
             [record["action_aux_labels"] for record in records],
-            dtype=torch.float32, device=device)
-        with torch.no_grad():
-            model.eval()
-            old = model(batch["features"], batch["actions"], batch["masks"],
-                        batch["feature_masks"], batch["action_token_masks"])
-            batch["old_log_probs"] = torch.distributions.Categorical(
-                logits=old["logits"]).log_prob(batch["chosen"])
-            ref = reference(batch["features"], batch["actions"], batch["masks"],
-                            batch["feature_masks"], batch["action_token_masks"])
-            batch["reference_logits"] = ref["logits"]
-        batch["returns"] = torch.tensor(returns_all, dtype=torch.float32, device=device)
-        advantages = torch.tensor(advantages_all, dtype=torch.float32, device=device)
+            dtype=torch.float32)
+        batch["old_log_probs"], batch["reference_logits"] = policy_targets_in_chunks(
+            model, reference, batch, device, args.minibatch_size)
+        batch["returns"] = torch.tensor(returns_all, dtype=torch.float32)
+        advantages = torch.tensor(advantages_all, dtype=torch.float32)
         batch["advantages"] = (advantages - advantages.mean()) / (
             advantages.std(unbiased=False) + 1e-8)
         metrics = ppo_update(

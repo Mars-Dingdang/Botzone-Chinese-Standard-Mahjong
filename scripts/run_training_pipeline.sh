@@ -168,6 +168,7 @@ if run_stage rl; then
   [[ -n "${PPO_GAMES_PER_UPDATE:-}" ]] && ppo_overrides+=(--games-per-update "$PPO_GAMES_PER_UPDATE")
   [[ -n "${PPO_ROLLOUT_ENVS:-}" ]] && ppo_overrides+=(--rollout-envs "$PPO_ROLLOUT_ENVS")
   [[ -n "${PPO_LEAGUE_GAMES:-}" ]] && ppo_overrides+=(--league-games "$PPO_LEAGUE_GAMES")
+  [[ -n "${PPO_MINIBATCH_SIZE:-}" ]] && ppo_overrides+=(--minibatch-size "$PPO_MINIBATCH_SIZE")
   [[ -n "${PPO_LR:-}" ]] && ppo_overrides+=(--lr "$PPO_LR")
   [[ -n "${PPO_TARGET_KL:-}" ]] && ppo_overrides+=(--target-kl "$PPO_TARGET_KL")
   [[ -n "${PPO_BC_KL_COEF:-}" ]] && ppo_overrides+=(--bc-kl-coef "$PPO_BC_KL_COEF")

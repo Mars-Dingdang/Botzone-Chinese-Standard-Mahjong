@@ -131,8 +131,9 @@ PPO 从最佳 BC checkpoint 开始。当前实现使用：
 - 原始终局分、Reward 分项、对手采样比例和周期 checkpoint。
 
 默认双卡配置每次 update 全局采集 `256` 局，由 DDP ranks 分片，每张卡最多同步推进
-`128` 个环境。学习率为 `3e-5`，target KL 为 `0.01`，BC-reference KL 系数为
-`0.05`，周期 league 使用 `400` 局。`games_per_update` 必须能被 DDP rank 数整除。
+`64` 个环境。完整 rollout batch 保留在 CPU，old/reference 前向和 PPO 更新每次只向
+GPU 搬运 `128` 个样本。学习率为 `3e-5`，target KL 为 `0.01`，BC-reference KL
+系数为 `0.05`，周期 league 使用 `400` 局。`games_per_update` 必须能被 DDP rank 数整除。
 
 ```bash
 torchrun --standalone --nproc_per_node=2 scripts/train_ppo.py \
@@ -204,7 +205,7 @@ GPUS=2 BC_EPOCHS=50 PPO_UPDATES=100 EVAL_GAMES=400 \
 
 `--bc-run-dir` 从已有 run 读取 `bc_model.best.pt`，找不到时回退到 `bc_model.pt`，
 并复制到自动创建的新 run，再训练和保存新的 PPO checkpoints。PPO 可通过
-`PPO_GAMES_PER_UPDATE`、`PPO_ROLLOUT_ENVS`、`PPO_LEAGUE_GAMES`、`PPO_LR`、
+`PPO_GAMES_PER_UPDATE`、`PPO_ROLLOUT_ENVS`、`PPO_LEAGUE_GAMES`、`PPO_MINIBATCH_SIZE`、`PPO_LR`、
 `PPO_TARGET_KL`、`PPO_BC_KL_COEF`、`PPO_REWARD_MODE` 和 `PPO_BELIEF_MODE` 覆盖。
 
 运行目录包含 `run_manifest.json`、`configs/`、`logs/`、`evaluations/`、BC/PPO

@@ -10,7 +10,8 @@ feature_version: 2
 history_capacity: 8
 history_every: 10
 league_games: 400
-rollout_envs: 128
+rollout_envs: 64
+minibatch_size: 128
 belief_mode: aux
 deal_in_pos_weight: 3.0
 direct_deal_in_pos_weight: 8.0
